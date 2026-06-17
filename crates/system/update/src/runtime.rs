@@ -33,13 +33,13 @@ impl Update<'_> {
             }
         }
 
-        let pending_len = self.pending_plan_ids.len()? as u32;
+        let pending_len = self.pending_proposal_ids.len()? as u32;
         if pending_len >= MAX_PENDING_PLANS {
             return Err(UpdateError::TooManyPending.into());
         }
 
         let voting_deadline = current_height.saturating_add(VOTING_WINDOW_BLOCKS);
-        self.write_plan(
+        self.write_proposal(
             &normalized,
             activation_height,
             voting_deadline,
@@ -53,60 +53,60 @@ impl Update<'_> {
     /// Records a vote on a pending proposal (`VoteKind` storage representation).
     pub fn cast_vote(
         &mut self,
-        plan_id: U256,
+        proposal_id: U256,
         voter: Address,
         kind: VoteKind,
         block_number: u64,
     ) -> Result<()> {
-        self.cast_vote_approve(plan_id, voter, kind.to_approve(), block_number)
+        self.cast_vote_approve(proposal_id, voter, kind.to_approve(), block_number)
     }
 
     /// ABI entry: `castVote(uint256 proposalId, bool approve)`.
     pub fn cast_vote_approve(
         &mut self,
-        plan_id: U256,
+        proposal_id: U256,
         voter: Address,
         approve: bool,
         block_number: u64,
     ) -> Result<()> {
-        let plan = self
-            .read_plan(plan_id)?
+        let proposal = self
+            .read_proposal(proposal_id)?
             .ok_or(UpdateError::ProposalNotFound)?;
 
-        if plan.status != ProposalStatus::Pending {
+        if proposal.status != ProposalStatus::Pending {
             return Err(UpdateError::NotPending.into());
         }
-        if block_number > plan.voting_deadline_height {
+        if block_number > proposal.voting_deadline_height {
             return Err(UpdateError::VotingClosed.into());
         }
-        if self.read_vote(plan_id, voter)?.is_some() {
+        if self.read_vote(proposal_id, voter)?.is_some() {
             return Err(UpdateError::AlreadyVoted.into());
         }
 
-        self.write_vote(plan_id, voter, VoteKind::from_approve(approve), block_number)
+        self.write_vote(proposal_id, voter, VoteKind::from_approve(approve), block_number)
     }
 
     /// Cancels a pending proposal. Only the proposer may cancel before deadline.
     pub fn cancel_proposal(
         &mut self,
-        plan_id: U256,
+        proposal_id: U256,
         caller: Address,
         block_number: u64,
     ) -> Result<()> {
-        let plan = self
-            .read_plan(plan_id)?
+        let proposal = self
+            .read_proposal(proposal_id)?
             .ok_or(UpdateError::ProposalNotFound)?;
 
-        if plan.status != ProposalStatus::Pending {
+        if proposal.status != ProposalStatus::Pending {
             return Err(UpdateError::NotPending.into());
         }
-        if caller != plan.proposer {
+        if caller != proposal.proposer {
             return Err(UpdateError::NotProposer.into());
         }
-        if block_number > plan.voting_deadline_height {
+        if block_number > proposal.voting_deadline_height {
             return Err(UpdateError::VotingClosed.into());
         }
 
-        self.set_plan_status(plan_id, ProposalStatus::Cancelled)
+        self.set_proposal_status(proposal_id, ProposalStatus::Cancelled)
     }
 }

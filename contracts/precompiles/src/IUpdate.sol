@@ -4,7 +4,7 @@ pragma solidity ^0.8.30;
 /// @title IUpdate
 /// @notice On-chain upgrade governance precompile at 0x000000000000000000000000000000000000EE0B
 interface IUpdate {
-    enum PlanStatus {
+    enum ProposalStatus {
         Pending,
         Approved,
         Rejected,
@@ -39,7 +39,7 @@ interface IUpdate {
 
     /// @notice Proposal was rejected by conflict with another approved proposal.
     event ProposalRejected(uint256 indexed proposalId, VoteTally state, uint256 indexed conflictingproposalId);
-    
+
     /// @notice Proposal was expired by voting deadline.
     event ProposalExpired(uint256 indexed proposalId, VoteTally state);
 
@@ -57,8 +57,8 @@ interface IUpdate {
     // View api
     //===============================================
 
-    /// @notice Returns the plan details.
-    function getPlan(uint256 proposalId)
+    /// @notice Returns the proposal details.
+    function getProposal(uint256 proposalId)
         external
         view
         returns (
@@ -69,7 +69,7 @@ interface IUpdate {
             uint64 votingDeadlineHeight,
             string memory version,
             bytes memory info,
-            PlanStatus status,
+            ProposalStatus status,
             VoteTally state,
         );
 

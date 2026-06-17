@@ -6,6 +6,7 @@
 # Ruler-generated local tool output.
 .codex/
 .claude/
+.cursor/
 
 # Pi project-local packages (if using pi install -l)
 .serena

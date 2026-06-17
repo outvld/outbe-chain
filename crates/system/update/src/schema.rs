@@ -59,10 +59,10 @@ pub struct VoteRecord {
 /// EVM storage layout for the Update governance precompile.
 ///
 /// Storage slots:
-///   0:  plan_count
+///   0:  proposal_count
 ///   1:  active_version
 ///   2:  active_version_height
-///   3:  pending_plan_ids
+///   3:  pending_proposal_ids
 ///   4..12: proposals (`ProposalRecord`, 9 slots)
 ///   13..15: votes (`VoteRecord`, 3 slots)
 ///   16: version_history
@@ -79,7 +79,7 @@ pub struct Update {
     pub active_version_height: outbe_primitives::storage::dsl::Value<u64>,
 
     #[attribute(order = 3)]
-    pub pending_plan_ids: outbe_primitives::storage::dsl::List<U256>,
+    pub pending_proposal_ids: outbe_primitives::storage::dsl::List<U256>,
 
     #[attribute(order = 4)]
     pub proposals: outbe_primitives::storage::dsl::Map<U256, ProposalRecord>,

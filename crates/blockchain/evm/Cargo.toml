@@ -27,6 +27,7 @@ outbe-credisfactory.workspace = true
 outbe-tributefactory.workspace = true
 outbe-teeregistry.workspace = true
 outbe-tee.workspace = true
+outbe-update.workspace = true
 outbe-agentreward.workspace = true
 outbe-metadosis.workspace = true
 outbe-validatorset.workspace = true

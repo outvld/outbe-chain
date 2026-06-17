@@ -1,7 +1,7 @@
 //! `Update` — on-chain upgrade governance storage and contract API.
 //!
 //! Stage 1 exposes the storage layout, state helpers, and ABI surface.
-//! EVM dispatch registration and lifecycle activation are wired in later stages.
+//! Stage 2 adds callable EVM dispatch; lifecycle activation is wired later.
 
 pub mod api;
 pub mod constants;
