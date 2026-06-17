@@ -3,7 +3,7 @@ use alloy_primitives::{keccak256, Address, B256, U256};
 use outbe_primitives::error::Result;
 
 use crate::errors::UpdateError;
-use crate::schema::Update;
+use crate::schema::{ProposalRecord, Update, VoteRecord};
 
 /// Lifecycle status of an upgrade proposal (storage: 1-based).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +126,36 @@ pub struct VoteInfo {
     pub block_number: u64,
 }
 
+impl TryFrom<ProposalRecord> for PlanInfo {
+    type Error = UpdateError;
+
+    fn try_from(record: ProposalRecord) -> std::result::Result<Self, Self::Error> {
+        Ok(Self {
+            id: record.id,
+            version: record.version,
+            activation_height: record.activation_height,
+            voting_deadline_height: record.voting_deadline_height,
+            info: record.info,
+            proposer: record.proposer,
+            proposed_at_height: record.proposed_at_height,
+            status: ProposalStatus::from_u8(record.status)?,
+            yes_votes: record.yes_votes,
+            no_votes: record.no_votes,
+        })
+    }
+}
+
+impl VoteRecord {
+    pub fn into_vote_info(self, plan_id: U256) -> std::result::Result<VoteInfo, UpdateError> {
+        Ok(VoteInfo {
+            plan_id,
+            voter: self.voter,
+            vote_kind: VoteKind::from_u8(self.vote_kind)?,
+            block_number: self.block_number,
+        })
+    }
+}
+
 /// Composite vote key: `keccak256(plan_id_be32 || voter_address_20)`.
 pub fn vote_key(plan_id: U256, voter: Address) -> B256 {
     let mut buf = [0u8; 52];
@@ -187,13 +217,13 @@ fn parse_version_triplet(version: &str) -> (u64, u64, u64) {
 impl Update<'_> {
     /// Returns the next plan id without incrementing the counter.
     pub fn peek_next_plan_id(&self) -> Result<U256> {
-        let current = self.plan_count.read()?;
+        let current = self.proposal_count.read()?;
         Ok(current + U256::from(1))
     }
 
     /// Returns `true` when `plan_id` has been allocated by `write_plan`.
     pub fn plan_exists(&self, plan_id: U256) -> Result<bool> {
-        let count = self.plan_count.read()?;
+        let count = self.proposal_count.read()?;
         Ok(!plan_id.is_zero() && plan_id <= count)
     }
 
@@ -202,33 +232,21 @@ impl Update<'_> {
         if !self.plan_exists(plan_id)? {
             return Ok(None);
         }
-        let status_raw = self.plan_status.read(&plan_id)?;
-        Ok(Some(PlanInfo {
-            id: plan_id,
-            version: self.plan_version.read_string(&plan_id)?,
-            activation_height: self.plan_activation_height.read(&plan_id)?,
-            voting_deadline_height: self.plan_voting_deadline_height.read(&plan_id)?,
-            info: self.plan_info.get_bytes(&plan_id).read()?,
-            proposer: self.plan_proposer.read(&plan_id)?,
-            proposed_at_height: self.plan_proposed_at_height.read(&plan_id)?,
-            status: ProposalStatus::from_u8(status_raw)?,
-            yes_votes: self.plan_yes_votes.read(&plan_id)?,
-            no_votes: self.plan_no_votes.read(&plan_id)?,
-        }))
+        Ok(self
+            .proposals
+            .get(plan_id)?
+            .map(PlanInfo::try_from)
+            .transpose()?)
     }
 
     /// Reads a vote or returns `None` when absent.
     pub fn read_vote(&self, plan_id: U256, voter: Address) -> Result<Option<VoteInfo>> {
         let key = vote_key(plan_id, voter);
-        if !self.vote_exists.read(&key)? {
-            return Ok(None);
-        }
-        Ok(Some(VoteInfo {
-            plan_id: self.vote_plan_id.read(&key)?,
-            voter: self.vote_voter.read(&key)?,
-            vote_kind: VoteKind::from_u8(self.vote_kind.read(&key)?)?,
-            block_number: self.vote_block_number.read(&key)?,
-        }))
+        Ok(self
+            .votes
+            .get(key)?
+            .map(|record| record.into_vote_info(plan_id))
+            .transpose()?)
     }
 
     /// Returns all pending plan ids currently indexed.
@@ -281,20 +299,21 @@ impl Update<'_> {
     ) -> Result<U256> {
         let normalized = normalize_version(version)?;
         let plan_id = self.peek_next_plan_id()?;
-        self.plan_count.write(plan_id)?;
+        self.proposal_count.write(plan_id)?;
 
-        self.plan_status.write(&plan_id, status.to_u8())?;
-        self.plan_activation_height
-            .write(&plan_id, activation_height)?;
-        self.plan_voting_deadline_height
-            .write(&plan_id, voting_deadline_height)?;
-        self.plan_proposer.write(&plan_id, proposer)?;
-        self.plan_proposed_at_height
-            .write(&plan_id, proposed_at_height)?;
-        self.plan_yes_votes.write(&plan_id, 0)?;
-        self.plan_no_votes.write(&plan_id, 0)?;
-        self.plan_version.write_string(&plan_id, &normalized)?;
-        self.plan_info.get_bytes(&plan_id).write(info)?;
+        let record = ProposalRecord {
+            id: plan_id,
+            proposer,
+            proposed_at_height,
+            activation_height,
+            voting_deadline_height,
+            status: status.to_u8(),
+            yes_votes: 0,
+            no_votes: 0,
+            version: normalized,
+            info: info.to_vec(),
+        };
+        self.proposals.create(&record)?;
 
         if status == ProposalStatus::Pending {
             self.pending_plan_ids.push(plan_id)?;
@@ -312,28 +331,33 @@ impl Update<'_> {
         block_number: u64,
     ) -> Result<()> {
         let key = vote_key(plan_id, voter);
-        self.vote_exists.write(&key, true)?;
-        self.vote_plan_id.write(&key, plan_id)?;
-        self.vote_voter.write(&key, voter)?;
-        self.vote_kind.write(&key, kind.to_u8())?;
-        self.vote_block_number.write(&key, block_number)?;
+        self.votes.create(&VoteRecord {
+            vote_key: key,
+            voter,
+            vote_kind: kind.to_u8(),
+            block_number,
+        })?;
 
+        let mut proposal = self
+            .proposals
+            .get(plan_id)?
+            .ok_or(UpdateError::ProposalNotFound)?;
         match kind {
-            VoteKind::Yes => {
-                let yes = self.plan_yes_votes.read(&plan_id)?;
-                self.plan_yes_votes.write(&plan_id, yes + 1)?;
-            }
-            VoteKind::No => {
-                let no = self.plan_no_votes.read(&plan_id)?;
-                self.plan_no_votes.write(&plan_id, no + 1)?;
-            }
+            VoteKind::Yes => proposal.yes_votes += 1,
+            VoteKind::No => proposal.no_votes += 1,
         }
+        self.proposals.update(&proposal)?;
         Ok(())
     }
 
     /// Updates plan status and removes it from the pending index when needed.
     pub fn set_plan_status(&mut self, plan_id: U256, status: ProposalStatus) -> Result<()> {
-        self.plan_status.write(&plan_id, status.to_u8())?;
+        let mut proposal = self
+            .proposals
+            .get(plan_id)?
+            .ok_or(UpdateError::ProposalNotFound)?;
+        proposal.status = status.to_u8();
+        self.proposals.update(&proposal)?;
         if status != ProposalStatus::Pending {
             self.remove_pending_plan_id(plan_id)?;
         }

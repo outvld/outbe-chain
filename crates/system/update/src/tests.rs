@@ -4,11 +4,13 @@ use outbe_primitives::error::PrecompileError;
 use outbe_primitives::storage::hashmap::HashMapStorageProvider;
 use outbe_primitives::storage::StorageHandle;
 
-use crate::api::{get_active_version, is_version_active_eq, is_version_active_gte, version_at_height};
+use crate::api::{
+    get_active_version, is_version_active_eq, is_version_active_gte, version_at_height,
+};
 use crate::constants::{MIN_ACTIVATION_BUFFER, VOTING_WINDOW_BLOCKS};
 use crate::precompile::{get_plan_return, proposal_status_to_abi, IUpdate};
-use crate::schema::Update;
-use crate::state::{normalize_version, ProposalStatus, VoteKind, VoteTally};
+use crate::schema::{ProposalRecord, Update, VoteRecord};
+use crate::state::{normalize_version, vote_key, ProposalStatus, VoteKind, VoteTally};
 
 const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
 const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
@@ -59,13 +61,7 @@ fn cast_vote_increments_counters_and_rejects_duplicate() {
         let mut update = Update::new(storage.clone());
         let current = 50u64;
         let plan_id = update
-            .create_proposal(
-                PROPOSER,
-                "v1.0.1",
-                min_activation(current),
-                b"",
-                current,
-            )
+            .create_proposal(PROPOSER, "v1.0.1", min_activation(current), b"", current)
             .unwrap();
 
         update
@@ -143,16 +139,12 @@ fn cancel_proposal_removes_pending_index() {
         let mut update = Update::new(storage.clone());
         let current = 10u64;
         let plan_id = update
-            .create_proposal(
-                PROPOSER,
-                "v2.0.0",
-                min_activation(current),
-                b"",
-                current,
-            )
+            .create_proposal(PROPOSER, "v2.0.0", min_activation(current), b"", current)
             .unwrap();
 
-        update.cancel_proposal(plan_id, PROPOSER, current + 1).unwrap();
+        update
+            .cancel_proposal(plan_id, PROPOSER, current + 1)
+            .unwrap();
         let plan = update.read_plan(plan_id).unwrap().unwrap();
         assert_eq!(plan.status, ProposalStatus::Cancelled);
         assert!(update.list_pending_plan_ids().unwrap().is_empty());
@@ -165,8 +157,14 @@ fn active_version_helpers_roundtrip() {
         let mut update = Update::new(storage.clone());
         update.set_active_version("v1.5.0", 500).unwrap();
 
-        assert_eq!(get_active_version(storage.clone()).unwrap(), Some("v1.5.0".into()));
-        assert_eq!(version_at_height(storage.clone(), 500).unwrap(), Some("v1.5.0".into()));
+        assert_eq!(
+            get_active_version(storage.clone()).unwrap(),
+            Some("v1.5.0".into())
+        );
+        assert_eq!(
+            version_at_height(storage.clone(), 500).unwrap(),
+            Some("v1.5.0".into())
+        );
         assert!(is_version_active_eq(storage.clone(), "v1.5.0").unwrap());
         assert!(is_version_active_gte(storage.clone(), "v1.4.9").unwrap());
         assert!(!is_version_active_eq(storage.clone(), "v1.5.1").unwrap());
@@ -193,6 +191,51 @@ fn rejects_downgrade_proposal() {
 fn normalize_version_lowercases_input() {
     assert_eq!(normalize_version("V1.2.3").unwrap(), "v1.2.3");
     assert!(normalize_version("1.2.3").is_err());
+}
+
+#[test]
+fn proposal_record_dynamic_fields_roundtrip() {
+    with_update(|storage| {
+        let update = Update::new(storage.clone());
+        let plan_id = U256::from(1);
+        let record = ProposalRecord {
+            id: plan_id,
+            status: ProposalStatus::Pending.to_u8(),
+            activation_height: 200,
+            voting_deadline_height: 150,
+            proposer: PROPOSER,
+            proposed_at_height: 100,
+            yes_votes: 0,
+            no_votes: 0,
+            version: "v9.8.7".into(),
+            info: b"dynamic-bytes-payload".to_vec(),
+        };
+        update.proposals.create(&record).unwrap();
+        let loaded = update.proposals.get(plan_id).unwrap().unwrap();
+        assert_eq!(loaded.version, "v9.8.7");
+        assert_eq!(loaded.info, b"dynamic-bytes-payload");
+    });
+}
+
+#[test]
+fn vote_record_roundtrip() {
+    with_update(|storage| {
+        let update = Update::new(storage.clone());
+        let plan_id = U256::from(7);
+        let key = vote_key(plan_id, VOTER_A);
+        let record = VoteRecord {
+            vote_key: key,
+            voter: VOTER_A,
+            vote_kind: VoteKind::Yes.to_u8(),
+            block_number: 42,
+        };
+        update.votes.create(&record).unwrap();
+        let loaded = update.votes.get(key).unwrap().unwrap();
+        assert_eq!(loaded.voter, VOTER_A);
+        assert_eq!(loaded.vote_kind, VoteKind::Yes.to_u8());
+        assert_eq!(loaded.block_number, 42);
+        assert_eq!(loaded.into_vote_info(plan_id).unwrap().plan_id, plan_id);
+    });
 }
 
 #[test]
