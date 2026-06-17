@@ -339,6 +339,50 @@ fn record_field_inner_storage_type(ty: &Type) -> Type {
     ty.clone()
 }
 
+fn is_string_type(ty: &Type) -> bool {
+    is_ident_type(ty, &["String"])
+}
+
+fn is_vec_u8_type(ty: &Type) -> bool {
+    if last_type_ident(ty).as_deref() != Some("Vec") {
+        return false;
+    }
+    let Some(args) = type_args(ty) else {
+        return false;
+    };
+    matches!(args.first(), Some(GenericArgument::Type(inner)) if is_ident_type(inner, &["u8"]))
+}
+
+enum DynamicFieldKind {
+    String,
+    VecU8,
+}
+
+fn dynamic_field_kind(ty: &Type) -> Option<DynamicFieldKind> {
+    let inner = record_field_inner_storage_type(ty);
+    if is_string_type(&inner) {
+        Some(DynamicFieldKind::String)
+    } else if is_vec_u8_type(&inner) {
+        Some(DynamicFieldKind::VecU8)
+    } else {
+        None
+    }
+}
+
+fn dynamic_bytes_mapping_new(
+    receiver: &Ident,
+    key_ty: &Type,
+    offset_lit: u64,
+) -> proc_macro2::TokenStream {
+    quote! {
+        ::outbe_primitives::storage::types::Mapping::<#key_ty, ::outbe_primitives::storage::types::StorageBytes>::new(
+            #receiver.base_slot() + ::alloy_primitives::U256::from(#offset_lit),
+            #receiver.address(),
+            #receiver.storage(),
+        )
+    }
+}
+
 fn compute_order_based_offsets<T, FSlot, FOrder>(
     items: &[T],
     slot_count: FSlot,
@@ -743,27 +787,66 @@ fn generate_storage_record(
         let fname = &field.name;
         let storage_ty = record_field_inner_storage_type(&field.ty);
         let offset_lit = *offset;
-        let mapping_read = quote! {
-            ::outbe_primitives::storage::types::Mapping::<#key_ty, #storage_ty>::new(
-                entry.base_slot() + ::alloy_primitives::U256::from(#offset_lit),
-                entry.address(),
-                entry.storage(),
-            ).read(entry.key_ref())?
+        let dynamic_kind = dynamic_field_kind(&field.ty);
+
+        if field.name == exists_field_ident && dynamic_kind.is_some() {
+            return Err(syn::Error::new_spanned(
+                &field.name,
+                "exists_field cannot be a dynamic String or Vec<u8> record field",
+            ));
+        }
+        if is_optional_type(&field.ty) && dynamic_kind.is_some() {
+            return Err(syn::Error::new_spanned(
+                &field.name,
+                "optional dynamic String or Vec<u8> record fields are not supported",
+            ));
+        }
+
+        // TODO: reduce boilerplate in constructors.
+        let (mapping_read, mapping_write, mapping_delete) = match dynamic_kind {
+            Some(DynamicFieldKind::String) => {
+                let map_new =
+                    dynamic_bytes_mapping_new(&format_ident!("entry"), key_ty, offset_lit);
+                (
+                    quote! { #map_new.read_string(entry.key_ref())? },
+                    quote! { #map_new.write_string(entry.key_ref(), &value.#fname)?; },
+                    quote! { #map_new.get_bytes(entry.key_ref()).clear()?; },
+                )
+            }
+            Some(DynamicFieldKind::VecU8) => {
+                let map_new =
+                    dynamic_bytes_mapping_new(&format_ident!("entry"), key_ty, offset_lit);
+                (
+                    quote! { #map_new.get_bytes(entry.key_ref()).read()? },
+                    quote! { #map_new.get_bytes(entry.key_ref()).write(&value.#fname)?; },
+                    quote! { #map_new.get_bytes(entry.key_ref()).clear()?; },
+                )
+            }
+            None => (
+                quote! {
+                    ::outbe_primitives::storage::types::Mapping::<#key_ty, #storage_ty>::new(
+                        entry.base_slot() + ::alloy_primitives::U256::from(#offset_lit),
+                        entry.address(),
+                        entry.storage(),
+                    ).read(entry.key_ref())?
+                },
+                quote! {
+                    ::outbe_primitives::storage::types::Mapping::<#key_ty, #storage_ty>::new(
+                        entry.base_slot() + ::alloy_primitives::U256::from(#offset_lit),
+                        entry.address(),
+                        entry.storage(),
+                    ).write(entry.key_ref(), value.#fname)?;
+                },
+                quote! {
+                    ::outbe_primitives::storage::types::Mapping::<#key_ty, #storage_ty>::new(
+                        entry.base_slot() + ::alloy_primitives::U256::from(#offset_lit),
+                        entry.address(),
+                        entry.storage(),
+                    ).get(entry.key_ref()).delete()?;
+                },
+            ),
         };
-        let mapping_write = quote! {
-            ::outbe_primitives::storage::types::Mapping::<#key_ty, #storage_ty>::new(
-                entry.base_slot() + ::alloy_primitives::U256::from(#offset_lit),
-                entry.address(),
-                entry.storage(),
-            ).write(entry.key_ref(), value.#fname)?;
-        };
-        let mapping_delete = quote! {
-            ::outbe_primitives::storage::types::Mapping::<#key_ty, #storage_ty>::new(
-                entry.base_slot() + ::alloy_primitives::U256::from(#offset_lit),
-                entry.address(),
-                entry.storage(),
-            ).get(entry.key_ref()).delete()?;
-        };
+
         if is_optional_type(&field.ty) {
             accessor_trait_methods.push(quote! {
                 fn #fname(&self) -> ::outbe_primitives::storage::dsl::OptionalField<'storage, #key_ty, #storage_ty>;
@@ -776,6 +859,16 @@ fn generate_storage_record(
                         self.storage(),
                         self.key(),
                     )
+                }
+            });
+        } else if dynamic_kind.is_some() {
+            let map_new = dynamic_bytes_mapping_new(&format_ident!("self"), key_ty, offset_lit);
+            accessor_trait_methods.push(quote! {
+                fn #fname(&self) -> ::outbe_primitives::storage::types::StorageBytes<'storage>;
+            });
+            accessor_impl_methods.push(quote! {
+                fn #fname(&self) -> ::outbe_primitives::storage::types::StorageBytes<'storage> {
+                    #map_new.get_bytes(self.key_ref())
                 }
             });
         } else {
