@@ -1,0 +1,13 @@
+[package]
+name = "outbe-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+outbe-macros.workspace = true
+outbe-primitives = { workspace = true, features = ["test-utils"] }
+alloy-primitives.workspace = true
+alloy-sol-types.workspace = true
+thiserror.workspace = true

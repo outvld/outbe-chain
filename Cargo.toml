@@ -22,6 +22,7 @@ members = [
     "crates/system/zkproof",
     "crates/system/tee",
     "crates/system/teeregistry",
+    "crates/system/update",
     # core outbe
     "crates/core/gratis",
     "crates/core/promis",
@@ -99,6 +100,7 @@ outbe-accounting = { path = "crates/system/accounting" }
 outbe-zkproof = { path = "crates/system/zkproof" }
 outbe-tee = { path = "crates/system/tee" }
 outbe-teeregistry = { path = "crates/system/teeregistry" }
+outbe-update = { path = "crates/system/update" }
 # Core — outbe
 outbe-gratis = { path = "crates/core/gratis" }
 outbe-promis = { path = "crates/core/promis" }

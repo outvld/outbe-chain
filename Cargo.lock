@@ -7602,6 +7602,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "outbe-update"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "outbe-macros",
+ "outbe-primitives",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "outbe-validatorset"
 version = "0.1.0"
 dependencies = [

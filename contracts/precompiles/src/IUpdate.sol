@@ -17,6 +17,7 @@ interface IUpdate {
         uint64 no;
     }
 
+    
     event ProposalCreated(
         uint256 indexed proposalId,
         address indexed proposer,
@@ -29,7 +30,7 @@ interface IUpdate {
     event VoteCast(
         uint256 indexed proposalId,
         address indexed voter,
-        VoteKind kind,
+        bool approve,
     );
 
     //===============================================
@@ -38,8 +39,10 @@ interface IUpdate {
 
     /// @notice Proposal was rejected by conflict with another approved proposal.
     event ProposalRejected(uint256 indexed proposalId, VoteTally state, uint256 indexed conflictingproposalId);
+    
     /// @notice Proposal was expired by voting deadline.
     event ProposalExpired(uint256 indexed proposalId, VoteTally state);
+
     /// @notice Proposal was cancelled by the proposer.
     event ProposalCancelled(uint256 indexed proposalId, address indexed proposer);
 
@@ -94,8 +97,8 @@ interface IUpdate {
     /// @notice Casts a vote on a proposal.
     /// @dev Only validator can participate in voting.
     /// @param proposalId The ID of the proposal.
-    /// @param kind The kind of vote: Yes or No.
-    function castVote(uint256 proposalId, uint8 kind) external;
+    /// @param approve The vote: true for Yes, false for No.
+    function castVote(uint256 proposalId, bool approve) external;
 
     /// @notice Cancels a pending proposal.
     /// @dev Only the proposer may cancel propose, and propose should be in Pending status.
