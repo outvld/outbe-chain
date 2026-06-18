@@ -1,51 +1,14 @@
 use alloy_primitives::{keccak256, Address, B256, U256};
 
 use outbe_primitives::error::Result;
+use tracing::warn;
 
 use crate::constants::{MAX_PROTOCOL_VERSION_MINOR, PROTOCOL_VERSION_MINOR_BITS};
-use crate::ProtocolVersion;
 use crate::errors::UpdateError;
 use crate::schema::{ProposalRecord, Update, VoteRecord};
+use crate::ProtocolVersion;
 
-/// Lifecycle status of an upgrade proposal (storage: 1-based).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum ProposalStatus {
-    Pending = 1,
-    Approved = 2,
-    Rejected = 3,
-    Expired = 4,
-    Activated = 5,
-    Cancelled = 6,
-}
-
-impl ProposalStatus {
-    pub fn from_u8(value: u8) -> std::result::Result<Self, UpdateError> {
-        match value {
-            1 => Ok(Self::Pending),
-            2 => Ok(Self::Approved),
-            3 => Ok(Self::Rejected),
-            4 => Ok(Self::Expired),
-            5 => Ok(Self::Activated),
-            6 => Ok(Self::Cancelled),
-            _ => Err(UpdateError::InvalidProposalStatus),
-        }
-    }
-
-    pub fn to_u8(self) -> u8 {
-        self as u8
-    }
-
-    /// Maps storage status (1-based) to Solidity `ProposalStatus` enum (0-based).
-    pub fn to_abi_u8(self) -> u8 {
-        self as u8 - 1
-    }
-
-    /// Maps Solidity `ProposalStatus` enum (0-based) to storage status (1-based).
-    pub fn from_abi_u8(value: u8) -> std::result::Result<Self, UpdateError> {
-        Self::from_u8(value.saturating_add(1))
-    }
-}
+pub use crate::schema::ProposalStatus;
 
 /// Vote choice on a proposal (storage: 0=No, 1=Yes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +95,7 @@ impl TryFrom<ProposalRecord> for ProposalInfo {
     type Error = UpdateError;
 
     fn try_from(record: ProposalRecord) -> std::result::Result<Self, Self::Error> {
+        let status = record.proposal_status()?;
         Ok(Self {
             id: record.id,
             version: record.version,
@@ -140,7 +104,7 @@ impl TryFrom<ProposalRecord> for ProposalInfo {
             info: record.info,
             proposer: record.proposer,
             proposed_at_height: record.proposed_at_height,
-            status: ProposalStatus::from_u8(record.status)?,
+            status,
             yes_votes: record.yes_votes,
             no_votes: record.no_votes,
         })
@@ -221,9 +185,14 @@ impl Update<'_> {
             .transpose()?)
     }
 
-    /// Returns all pending proposal ids currently indexed.
+    /// Returns all proposal ids in the pending (voting) index.
     pub fn list_pending_proposal_ids(&self) -> Result<Vec<U256>> {
         self.pending_proposal_ids.read_all()
+    }
+
+    /// Returns all proposal ids waiting for activation height.
+    pub fn list_waiting_for_activation_proposal_ids(&self) -> Result<Vec<U256>> {
+        self.waiting_for_activation_proposal_ids.read_all()
     }
 
     /// Reads the active protocol version.
@@ -312,37 +281,74 @@ impl Update<'_> {
         Ok(())
     }
 
-    /// Updates proposal status and removes it from the pending index when needed.
-    pub fn set_proposal_status(&mut self, proposal_id: U256, status: ProposalStatus) -> Result<()> {
+    /// Updates proposal status and moves lifecycle indexes when needed.
+    pub fn set_proposal_status(
+        &mut self,
+        proposal_id: U256,
+        new_status: ProposalStatus,
+    ) -> Result<()> {
         let mut proposal = self
             .proposals
             .get(proposal_id)?
             .ok_or(UpdateError::ProposalNotFound)?;
-        proposal.status = status.to_u8();
+        let old_status = proposal.proposal_status()?;
+
+        // Skip update in case of no change
+        if old_status == new_status {
+            warn!("proposal status is already {old_status:?} for proposal {proposal_id}");
+            return Ok(());
+        }
+        proposal.set_proposal_status(new_status);
         self.proposals.update(&proposal)?;
-        if status != ProposalStatus::Pending {
-            self.remove_pending_proposal_id(proposal_id)?;
+
+        match old_status {
+            ProposalStatus::Pending => {
+                self.remove_pending_proposal_id(proposal_id)?;
+            }
+            ProposalStatus::Approved => {
+                self.remove_waiting_for_activation_proposal_id(proposal_id)?;
+            }
+            _ => {}
+        }
+        match new_status {
+            ProposalStatus::Pending => {
+                self.pending_proposal_ids.push(proposal_id)?;
+            }
+            ProposalStatus::Approved => {
+                self.waiting_for_activation_proposal_ids.push(proposal_id)?;
+            }
+            _ => {}
         }
         Ok(())
     }
 
     fn remove_pending_proposal_id(&mut self, proposal_id: U256) -> Result<()> {
-        let pending = self.pending_proposal_ids.read_all()?;
-        let len = pending.len();
-        for (idx, id) in pending.iter().enumerate() {
-            if *id == proposal_id {
-                let last_idx = (len - 1) as u32;
-                if idx as u32 != last_idx {
-                    let last = self
-                        .pending_proposal_ids
-                        .get(last_idx)?
-                        .unwrap_or(U256::ZERO);
-                    self.pending_proposal_ids.set(idx as u32, last)?;
-                }
-                let _ = self.pending_proposal_ids.pop()?;
-                break;
-            }
+        Self::remove_proposal_id_from_list(&mut self.pending_proposal_ids, proposal_id)
+    }
+
+    fn remove_waiting_for_activation_proposal_id(&mut self, proposal_id: U256) -> Result<()> {
+        Self::remove_proposal_id_from_list(
+            &mut self.waiting_for_activation_proposal_ids,
+            proposal_id,
+        )
+    }
+
+    fn remove_proposal_id_from_list(
+        list: &mut outbe_primitives::storage::dsl::List<U256>,
+        proposal_id: U256,
+    ) -> Result<()> {
+        let ids = list.read_all()?;
+        let Some(removed_idx) = ids.iter().position(|p| *p == proposal_id) else {
+            warn!("proposal {proposal_id} not found in list");
+            return Ok(());
+        };
+
+        let len = ids.len();
+        if removed_idx != len - 1 {
+            let last = list.get(len as u32 - 1)?.unwrap_or(U256::ZERO);
+            list.set(removed_idx as u32, last)?;
         }
+        let _ = list.pop()?;
         Ok(())
     }
 }

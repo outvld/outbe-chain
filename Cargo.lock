@@ -7610,7 +7610,9 @@ dependencies = [
  "alloy-sol-types",
  "outbe-macros",
  "outbe-primitives",
+ "outbe-validatorset",
  "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

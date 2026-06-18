@@ -3,7 +3,9 @@
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::{sol, SolInterface};
 
-use outbe_primitives::dispatch::{dispatch_call, metadata, mutate, mutate_void, reject_value, view};
+use outbe_primitives::dispatch::{
+    dispatch_call, metadata, mutate, mutate_void, reject_value, view,
+};
 use outbe_primitives::error::Result;
 use outbe_primitives::storage::StorageHandle;
 
@@ -31,19 +33,12 @@ pub fn get_proposal_return(proposal: &ProposalInfo) -> IUpdate::getProposalRetur
         votingDeadlineHeight: proposal.voting_deadline_height,
         version: proposal.version,
         info: proposal.info.clone().into(),
-        status: IUpdate::ProposalStatus::try_from(proposal.status.to_abi_u8())
-            .unwrap_or(IUpdate::ProposalStatus::Pending),
+        status: IUpdate::ProposalStatus::from(proposal.status),
         state: IUpdate::VoteTally {
             yes: tally.yes,
             no: tally.no,
         },
     }
-}
-
-/// Maps storage status to the Solidity `ProposalStatus` enum variant.
-pub fn proposal_status_to_abi(status: ProposalStatus) -> IUpdate::ProposalStatus {
-    IUpdate::ProposalStatus::try_from(status.to_abi_u8())
-        .unwrap_or(IUpdate::ProposalStatus::Pending)
 }
 
 /// Dispatches an ABI-encoded call to the Update precompile.
@@ -86,9 +81,38 @@ pub fn dispatch(
                 Ok(update.get_active_version()?.unwrap_or_default())
             }),
             isVersionActive(c) => view(c, |c| is_version_active_eq(storage.clone(), c.version)),
-            listPendingProposals(_) => metadata::<IUpdate::listPendingProposalsCall>(|| {
-                update.list_pending_proposal_ids()
-            }),
+            listPendingProposals(_) => {
+                metadata::<IUpdate::listPendingProposalsCall>(|| update.list_pending_proposal_ids())
+            }
         }
     })
+}
+
+impl From<ProposalStatus> for IUpdate::ProposalStatus {
+    fn from(status: ProposalStatus) -> Self {
+        match status {
+            ProposalStatus::Pending => IUpdate::ProposalStatus::Pending,
+            ProposalStatus::Approved => IUpdate::ProposalStatus::Approved,
+            ProposalStatus::Rejected => IUpdate::ProposalStatus::Rejected,
+            ProposalStatus::Expired => IUpdate::ProposalStatus::Expired,
+            ProposalStatus::Activated => IUpdate::ProposalStatus::Activated,
+            ProposalStatus::Cancelled => IUpdate::ProposalStatus::Cancelled,
+        }
+    }
+}
+
+impl TryFrom<IUpdate::ProposalStatus> for ProposalStatus {
+    type Error = UpdateError;
+
+    fn try_from(status: IUpdate::ProposalStatus) -> std::result::Result<Self, Self::Error> {
+        Ok(match status {
+            IUpdate::ProposalStatus::Pending => ProposalStatus::Pending,
+            IUpdate::ProposalStatus::Approved => ProposalStatus::Approved,
+            IUpdate::ProposalStatus::Rejected => ProposalStatus::Rejected,
+            IUpdate::ProposalStatus::Expired => ProposalStatus::Expired,
+            IUpdate::ProposalStatus::Activated => ProposalStatus::Activated,
+            IUpdate::ProposalStatus::Cancelled => ProposalStatus::Cancelled,
+            _ => return Err(UpdateError::InvalidProposalStatus),
+        })
+    }
 }

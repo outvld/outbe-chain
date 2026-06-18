@@ -14,7 +14,7 @@ pub const QUORUM_DENOMINATOR: u64 = 3;
 /// Minimum blocks between proposal creation and activation after voting closes.
 pub const MIN_ACTIVATION_BUFFER: u64 = 100;
 
-/// Cap on simultaneous pending proposals indexed in `pending_proposal_ids`.
+/// Cap on simultaneous open proposals in `pending_proposal_ids` (voting phase).
 pub const MAX_PENDING_PLANS: u32 = 16;
 
 /// Bits reserved for the minor part of an on-chain protocol version.

@@ -1,17 +1,30 @@
 use alloy_primitives::{Address, U256};
 
 use outbe_primitives::error::Result;
+use outbe_validatorset::contract::ValidatorSet;
 
-use crate::constants::{MAX_PENDING_PLANS, MIN_ACTIVATION_BUFFER, VOTING_WINDOW_BLOCKS};
-use crate::ProtocolVersion;
+use crate::auth::ensure_active_validator;
+use crate::constants::{
+    MAX_PENDING_PLANS, MIN_ACTIVATION_BUFFER, QUORUM_DENOMINATOR, QUORUM_NUMERATOR,
+    VOTING_WINDOW_BLOCKS,
+};
 use crate::errors::UpdateError;
 use crate::schema::Update;
 use crate::state::{version_gt, ProposalStatus, VoteKind};
+use crate::ProtocolVersion;
+
+/// Returns `true` when `yes_votes` reaches the configured 2/3 quorum.
+pub const fn quorum_reached(yes_votes: u64, active_validator_count: u32) -> bool {
+    if active_validator_count == 0 {
+        return false;
+    }
+    let yes = yes_votes as u128;
+    let active = active_validator_count as u128;
+    yes * QUORUM_DENOMINATOR as u128 >= active * QUORUM_NUMERATOR as u128
+}
 
 impl Update<'_> {
     /// Creates a pending upgrade proposal after deterministic validation.
-    ///
-    /// Active-validator authorization is deferred until callable dispatch is wired.
     pub fn create_proposal(
         &mut self,
         proposer: Address,
@@ -20,6 +33,8 @@ impl Update<'_> {
         info: &[u8],
         current_height: u64,
     ) -> Result<U256> {
+        ensure_active_validator(self.storage.clone(), proposer)?;
+
         let min_activation = current_height
             .saturating_add(VOTING_WINDOW_BLOCKS)
             .saturating_add(MIN_ACTIVATION_BUFFER);
@@ -69,6 +84,8 @@ impl Update<'_> {
         approve: bool,
         block_number: u64,
     ) -> Result<()> {
+        ensure_active_validator(self.storage.clone(), voter)?;
+
         let proposal = self
             .read_proposal(proposal_id)?
             .ok_or(UpdateError::ProposalNotFound)?;
@@ -83,7 +100,12 @@ impl Update<'_> {
             return Err(UpdateError::AlreadyVoted.into());
         }
 
-        self.write_vote(proposal_id, voter, VoteKind::from_approve(approve), block_number)
+        self.write_vote(
+            proposal_id,
+            voter,
+            VoteKind::from_approve(approve),
+            block_number,
+        )
     }
 
     /// Cancels a pending proposal. Only the proposer may cancel before deadline.
@@ -108,5 +130,86 @@ impl Update<'_> {
         }
 
         self.set_proposal_status(proposal_id, ProposalStatus::Cancelled)
+    }
+
+    /// Tally pending proposals and activate approved ones at the current block.
+    pub fn process_begin_block(&mut self, block_number: u64) -> Result<()> {
+        let pending_ids = self.list_pending_proposal_ids()?;
+        for proposal_id in pending_ids {
+            let Some(proposal) = self.read_proposal(proposal_id)? else {
+                return Err(UpdateError::ProposalNotFound.into());
+            };
+            if proposal.status == ProposalStatus::Pending
+                && block_number > proposal.voting_deadline_height
+            {
+                self.finalize_voting(proposal_id)?;
+            }
+        }
+
+        let waiting_ids = self.list_waiting_for_activation_proposal_ids()?;
+        for proposal_id in waiting_ids {
+            let Some(proposal) = self.read_proposal(proposal_id)? else {
+                return Err(UpdateError::ProposalNotFound.into());
+            };
+            if proposal.status == ProposalStatus::Approved
+                && block_number >= proposal.activation_height
+            {
+                self.activate_proposal(proposal_id)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn finalize_voting(&mut self, proposal_id: U256) -> Result<()> {
+        let proposal = self
+            .read_proposal(proposal_id)?
+            .ok_or(UpdateError::ProposalNotFound)?;
+        if proposal.status != ProposalStatus::Pending {
+            return Ok(());
+        }
+
+        let vs = ValidatorSet::new(self.storage.clone());
+        let active_count = vs.active_validator_count()?;
+        let next_status = if quorum_reached(proposal.yes_votes, active_count) {
+            if self.has_approved_activation_conflict(proposal_id, proposal.activation_height)? {
+                ProposalStatus::Rejected
+            } else {
+                ProposalStatus::Approved
+            }
+        } else {
+            ProposalStatus::Expired
+        };
+        self.set_proposal_status(proposal_id, next_status)
+    }
+
+    fn activate_proposal(&mut self, proposal_id: U256) -> Result<()> {
+        let proposal = self
+            .read_proposal(proposal_id)?
+            .ok_or(UpdateError::ProposalNotFound)?;
+        if proposal.status != ProposalStatus::Approved {
+            return Ok(());
+        }
+
+        self.set_active_version(proposal.version, proposal.activation_height)?;
+        self.set_proposal_status(proposal_id, ProposalStatus::Activated)
+    }
+
+    fn has_approved_activation_conflict(
+        &self,
+        proposal_id: U256,
+        activation_height: u64,
+    ) -> Result<bool> {
+        for tracked_id in self.list_waiting_for_activation_proposal_ids()? {
+            if tracked_id == proposal_id {
+                continue;
+            }
+            let Some(other) = self.read_proposal(tracked_id)? else {
+                continue;
+            };
+            if other.activation_height == activation_height {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }

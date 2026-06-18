@@ -1,11 +1,14 @@
 //! `Update` — on-chain upgrade governance storage and contract API.
 //!
-//! Stage 1 exposes the storage layout, state helpers, and ABI surface.
-//! Stage 2 adds callable EVM dispatch; lifecycle activation is wired later.
+//! Stage 1: storage layout, state helpers, and ABI surface.
+//! Stage 2: callable EVM dispatch.
+//! Stage 3: active-validator authorization and begin-block tally/activation.
 
 pub mod api;
+pub mod auth;
 pub mod constants;
 pub mod errors;
+pub mod lifecycle;
 pub mod precompile;
 pub mod runtime;
 pub mod schema;
