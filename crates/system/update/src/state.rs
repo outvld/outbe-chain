@@ -2,6 +2,8 @@ use alloy_primitives::{keccak256, Address, B256, U256};
 
 use outbe_primitives::error::Result;
 
+use crate::constants::{MAX_PROTOCOL_VERSION_MINOR, PROTOCOL_VERSION_MINOR_BITS};
+use crate::ProtocolVersion;
 use crate::errors::UpdateError;
 use crate::schema::{ProposalRecord, Update, VoteRecord};
 
@@ -100,7 +102,7 @@ impl From<&ProposalInfo> for VoteTally {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProposalInfo {
     pub id: U256,
-    pub version: String,
+    pub version: ProtocolVersion,
     pub activation_height: u64,
     pub voting_deadline_height: u64,
     pub info: Vec<u8>,
@@ -164,54 +166,24 @@ pub fn vote_key(proposal_id: U256, voter: Address) -> B256 {
     keccak256(buf)
 }
 
-/// Normalizes a semver-like version string to lowercase `vMAJOR.MINOR.PATCH`.
-pub fn normalize_version(version: &str) -> std::result::Result<String, UpdateError> {
-    let normalized = version.trim().to_lowercase();
-    if !is_valid_version(&normalized) {
-        return Err(UpdateError::InvalidVersion);
-    }
-    Ok(normalized)
+/// Returns the major part of an encoded protocol version.
+pub fn protocol_version_major(version: ProtocolVersion) -> u8 {
+    (version >> PROTOCOL_VERSION_MINOR_BITS) as u8
 }
 
-fn is_valid_version(version: &str) -> bool {
-    let Some(rest) = version.strip_prefix('v') else {
-        return false;
-    };
-    let mut parts = rest.split('.');
-    let Some(major) = parts.next() else {
-        return false;
-    };
-    let Some(minor) = parts.next() else {
-        return false;
-    };
-    let Some(patch) = parts.next() else {
-        return false;
-    };
-    if parts.next().is_some() {
-        return false;
-    }
-    [major, minor, patch]
-        .into_iter()
-        .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+/// Returns the minor part of an encoded protocol version.
+pub fn protocol_version_minor(version: ProtocolVersion) -> u32 {
+    version & MAX_PROTOCOL_VERSION_MINOR
 }
 
-/// Compares two normalized semver strings. Returns `true` if `left > right`.
-pub fn version_gt(left: &str, right: &str) -> bool {
-    parse_version_triplet(left) > parse_version_triplet(right)
+/// Compares two protocol versions. Returns `true` if `left > right`.
+pub fn version_gt(left: ProtocolVersion, right: ProtocolVersion) -> bool {
+    left > right
 }
 
-/// Compares two normalized semver strings. Returns `true` if `left >= right`.
-pub fn version_gte(left: &str, right: &str) -> bool {
-    parse_version_triplet(left) >= parse_version_triplet(right)
-}
-
-fn parse_version_triplet(version: &str) -> (u64, u64, u64) {
-    let rest = version.strip_prefix('v').unwrap_or(version);
-    let mut parts = rest.split('.');
-    let major = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
-    let minor = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
-    let patch = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
-    (major, minor, patch)
+/// Compares two protocol versions. Returns `true` if `left >= right`.
+pub fn version_gte(left: ProtocolVersion, right: ProtocolVersion) -> bool {
+    left >= right
 }
 
 impl Update<'_> {
@@ -254,12 +226,9 @@ impl Update<'_> {
         self.pending_proposal_ids.read_all()
     }
 
-    /// Reads the active protocol version, if any.
-    pub fn get_active_version(&self) -> Result<Option<String>> {
-        if self.active_version.is_empty()? {
-            return Ok(None);
-        }
-        Ok(Some(self.active_version.read_string()?))
+    /// Reads the active protocol version.
+    pub fn get_active_version(&self) -> Result<Option<ProtocolVersion>> {
+        Ok(Some(self.active_version.read()?))
     }
 
     /// Reads the activation height of the current active version.
@@ -267,29 +236,23 @@ impl Update<'_> {
         self.active_version_height.read()
     }
 
-    /// Reads the version recorded at `height`, if any.
-    pub fn version_at_height(&self, height: u64) -> Result<Option<String>> {
-        let version = self.version_history.read_string(&height)?;
-        if version.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(version))
-        }
+    /// Reads the version recorded at `height`.
+    pub fn version_at_height(&self, height: u64) -> Result<Option<ProtocolVersion>> {
+        Ok(Some(self.version_history.read(&height)?))
     }
 
     /// Writes the active protocol version and records it in `version_history`.
-    pub fn set_active_version(&mut self, version: &str, height: u64) -> Result<()> {
-        let normalized = normalize_version(version)?;
-        self.active_version.write_string(&normalized)?;
+    pub fn set_active_version(&mut self, version: ProtocolVersion, height: u64) -> Result<()> {
+        self.active_version.write(version)?;
         self.active_version_height.write(height)?;
-        self.version_history.write_string(&height, &normalized)?;
+        self.version_history.write(&height, version)?;
         Ok(())
     }
 
     /// Allocates a new proposal id and persists all proposal fields.
     pub fn write_proposal(
         &mut self,
-        version: &str,
+        version: ProtocolVersion,
         activation_height: u64,
         voting_deadline_height: u64,
         info: &[u8],
@@ -297,7 +260,6 @@ impl Update<'_> {
         proposed_at_height: u64,
         status: ProposalStatus,
     ) -> Result<U256> {
-        let normalized = normalize_version(version)?;
         let proposal_id = self.peek_next_proposal_id()?;
         self.proposal_count.write(proposal_id)?;
 
@@ -310,7 +272,7 @@ impl Update<'_> {
             status: status.to_u8(),
             yes_votes: 0,
             no_votes: 0,
-            version: normalized,
+            version,
             info: info.to_vec(),
         };
         self.proposals.create(&record)?;

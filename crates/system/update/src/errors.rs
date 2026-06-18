@@ -13,7 +13,7 @@ pub enum UpdateError {
     VotingClosed,
     #[error("activation height is in the past")]
     HeightInPast,
-    #[error("invalid version format; expected vMAJOR.MINOR.PATCH")]
+    #[error("invalid protocol version; expected non-zero u32 encoded as u8 major + u24 minor")]
     InvalidVersion,
     #[error("downgrade not allowed: new version must be greater than active version")]
     DowngradeNotAllowed,

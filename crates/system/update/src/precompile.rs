@@ -29,7 +29,7 @@ pub fn get_proposal_return(proposal: &ProposalInfo) -> IUpdate::getProposalRetur
         proposedAtHeight: proposal.proposed_at_height,
         activationHeight: proposal.activation_height,
         votingDeadlineHeight: proposal.voting_deadline_height,
-        version: proposal.version.clone(),
+        version: proposal.version,
         info: proposal.info.clone().into(),
         status: IUpdate::ProposalStatus::try_from(proposal.status.to_abi_u8())
             .unwrap_or(IUpdate::ProposalStatus::Pending),
@@ -62,7 +62,7 @@ pub fn dispatch(
                 let block_number = storage.block_number()?;
                 update.create_proposal(
                     sender,
-                    &c.version,
+                    c.version,
                     c.activationHeight,
                     c.info.as_ref(),
                     block_number,
@@ -85,7 +85,7 @@ pub fn dispatch(
             getActiveVersion(_) => metadata::<IUpdate::getActiveVersionCall>(|| {
                 Ok(update.get_active_version()?.unwrap_or_default())
             }),
-            isVersionActive(c) => view(c, |c| is_version_active_eq(storage.clone(), &c.version)),
+            isVersionActive(c) => view(c, |c| is_version_active_eq(storage.clone(), c.version)),
             listPendingProposals(_) => metadata::<IUpdate::listPendingProposalsCall>(|| {
                 update.list_pending_proposal_ids()
             }),

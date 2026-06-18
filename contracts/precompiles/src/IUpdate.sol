@@ -21,7 +21,7 @@ interface IUpdate {
     event ProposalCreated(
         uint256 indexed proposalId,
         address indexed proposer,
-        string version,
+        uint32 version,
         uint64 activationHeight,
         uint64 votingDeadlineHeight,
         bytes info,
@@ -47,10 +47,10 @@ interface IUpdate {
     event ProposalCancelled(uint256 indexed proposalId, address indexed proposer);
 
     /// @notice Proposal was approved by majority (2/3).
-    event ProposalApproved(uint256 indexed proposalId, VoteTally state, uint64 activationHeight, string version);
+    event ProposalApproved(uint256 indexed proposalId, VoteTally state, uint64 activationHeight, uint32 version);
 
     /// @notice Emitted when the proposed plan is activated.
-    event UpgradeActivated(string version, uint64 activationHeight);
+    event UpgradeActivated(uint32 version, uint64 activationHeight);
 
 
     //===============================================
@@ -67,17 +67,17 @@ interface IUpdate {
             uint64 proposedAtHeight,
             uint64 activationHeight,
             uint64 votingDeadlineHeight,
-            string memory version,
+            uint32 version,
             bytes memory info,
             ProposalStatus status,
             VoteTally state,
         );
 
     /// @notice Returns the active version.
-    function getActiveVersion() external view returns (string memory);
+    function getActiveVersion() external view returns (uint32);
 
     /// @notice Returns true if the version is active.
-    function isVersionActive(string calldata version) external view returns (bool);
+    function isVersionActive(uint32 version) external view returns (bool);
 
     /// @notice Returns the list of pending proposal ids.
     function listPendingProposals() external view returns (uint256[] memory);
@@ -87,10 +87,10 @@ interface IUpdate {
     //===============================================
 
     /// @notice Creates a new proposal.
-    /// @param version The version in format of semver string: vMAJOR.MINOR.PATCH.
+    /// @param version The protocol version encoded as u8 major + u24 minor.
     /// @param activationHeight The height at which the proposal should be activated.
     /// @param info The additional information about the proposal.
-    function createProposal(string calldata version, uint64 activationHeight, bytes calldata info)
+    function createProposal(uint32 version, uint64 activationHeight, bytes calldata info)
         external
         returns (uint256 proposalId);
 

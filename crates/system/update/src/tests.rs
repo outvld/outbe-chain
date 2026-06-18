@@ -8,14 +8,26 @@ use outbe_primitives::storage::StorageHandle;
 use crate::api::{
     get_active_version, is_version_active_eq, is_version_active_gte, version_at_height,
 };
-use crate::constants::{MIN_ACTIVATION_BUFFER, VOTING_WINDOW_BLOCKS};
+use crate::constants::{MAX_PROTOCOL_VERSION_MINOR, MIN_ACTIVATION_BUFFER, VOTING_WINDOW_BLOCKS};
+use crate::{encode_protocol_version, ProtocolVersion};
 use crate::precompile::{dispatch, get_proposal_return, proposal_status_to_abi, IUpdate};
 use crate::schema::{ProposalRecord, Update, VoteRecord};
-use crate::state::{normalize_version, vote_key, ProposalStatus, VoteKind, VoteTally};
+use crate::state::{
+    protocol_version_major, protocol_version_minor, vote_key, ProposalStatus, VoteKind, VoteTally,
+};
 
 const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
 const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
 const VOTER_B: Address = address!("0x3333333333333333333333333333333333333333");
+const V1_0: ProtocolVersion = encode_protocol_version(1, 0);
+const V1_1: ProtocolVersion = encode_protocol_version(1, 1);
+const V1_2: ProtocolVersion = encode_protocol_version(1, 2);
+const V1_5: ProtocolVersion = encode_protocol_version(1, 5);
+const V1_9: ProtocolVersion = encode_protocol_version(1, 9);
+const V2_0: ProtocolVersion = encode_protocol_version(2, 0);
+const V3_0: ProtocolVersion = encode_protocol_version(3, 0);
+const V3_1: ProtocolVersion = encode_protocol_version(3, 1);
+const V9_8: ProtocolVersion = encode_protocol_version(9, 8);
 
 fn with_update<F: FnOnce(StorageHandle)>(f: F) {
     let mut provider = HashMapStorageProvider::new(1);
@@ -37,7 +49,7 @@ fn create_proposal_writes_fields_and_pending_index() {
         let proposal_id = update
             .create_proposal(
                 PROPOSER,
-                "v1.2.3",
+                V1_2,
                 min_activation(current),
                 b"release-notes",
                 current,
@@ -46,7 +58,7 @@ fn create_proposal_writes_fields_and_pending_index() {
 
         assert_eq!(proposal_id, U256::from(1));
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
-        assert_eq!(proposal.version, "v1.2.3");
+        assert_eq!(proposal.version, V1_2);
         assert_eq!(proposal.proposer, PROPOSER);
         assert_eq!(proposal.proposed_at_height, current);
         assert_eq!(proposal.status, ProposalStatus::Pending);
@@ -65,7 +77,7 @@ fn cast_vote_increments_counters_and_rejects_duplicate() {
         let mut update = Update::new(storage.clone());
         let current = 50u64;
         let proposal_id = update
-            .create_proposal(PROPOSER, "v1.0.1", min_activation(current), b"", current)
+            .create_proposal(PROPOSER, V1_1, min_activation(current), b"", current)
             .unwrap();
 
         update
@@ -118,7 +130,7 @@ fn get_proposal_return_matches_abi_shape() {
         let proposal_id = update
             .create_proposal(
                 PROPOSER,
-                "v1.0.0",
+                V1_0,
                 min_activation(current),
                 b"meta",
                 current,
@@ -129,7 +141,7 @@ fn get_proposal_return_matches_abi_shape() {
         assert_eq!(ret.proposalId, proposal_id);
         assert_eq!(ret.proposer, PROPOSER);
         assert_eq!(ret.proposedAtHeight, current);
-        assert_eq!(ret.version, "v1.0.0");
+        assert_eq!(ret.version, V1_0);
         assert_eq!(ret.info.as_ref(), b"meta");
         assert_eq!(ret.status, IUpdate::ProposalStatus::Pending);
         assert_eq!(ret.state.yes, 0);
@@ -143,7 +155,7 @@ fn cancel_proposal_removes_pending_index() {
         let mut update = Update::new(storage.clone());
         let current = 10u64;
         let proposal_id = update
-            .create_proposal(PROPOSER, "v2.0.0", min_activation(current), b"", current)
+            .create_proposal(PROPOSER, V2_0, min_activation(current), b"", current)
             .unwrap();
 
         update
@@ -159,19 +171,19 @@ fn cancel_proposal_removes_pending_index() {
 fn active_version_helpers_roundtrip() {
     with_update(|storage| {
         let mut update = Update::new(storage.clone());
-        update.set_active_version("v1.5.0", 500).unwrap();
+        update.set_active_version(V1_5, 500).unwrap();
 
         assert_eq!(
             get_active_version(storage.clone()).unwrap(),
-            Some("v1.5.0".into())
+            Some(V1_5)
         );
         assert_eq!(
             version_at_height(storage.clone(), 500).unwrap(),
-            Some("v1.5.0".into())
+            Some(V1_5)
         );
-        assert!(is_version_active_eq(storage.clone(), "v1.5.0").unwrap());
-        assert!(is_version_active_gte(storage.clone(), "v1.4.9").unwrap());
-        assert!(!is_version_active_eq(storage.clone(), "v1.5.1").unwrap());
+        assert!(is_version_active_eq(storage.clone(), V1_5).unwrap());
+        assert!(is_version_active_gte(storage.clone(), V1_2).unwrap());
+        assert!(!is_version_active_eq(storage.clone(), V1_9).unwrap());
     });
 }
 
@@ -179,10 +191,10 @@ fn active_version_helpers_roundtrip() {
 fn rejects_downgrade_proposal() {
     with_update(|storage| {
         let mut update = Update::new(storage.clone());
-        update.set_active_version("v2.0.0", 1).unwrap();
+        update.set_active_version(V2_0, 1).unwrap();
 
         let err = update
-            .create_proposal(PROPOSER, "v1.9.9", min_activation(10), b"", 10)
+            .create_proposal(PROPOSER, V1_9, min_activation(10), b"", 10)
             .unwrap_err();
         assert!(matches!(
             err,
@@ -192,9 +204,15 @@ fn rejects_downgrade_proposal() {
 }
 
 #[test]
-fn normalize_version_lowercases_input() {
-    assert_eq!(normalize_version("V1.2.3").unwrap(), "v1.2.3");
-    assert!(normalize_version("1.2.3").is_err());
+fn protocol_version_encoding_roundtrip() {
+    let version = encode_protocol_version(7, 42);
+    assert_eq!(protocol_version_major(version), 7);
+    assert_eq!(protocol_version_minor(version), 42);
+    assert_eq!(
+        encode_protocol_version(1, MAX_PROTOCOL_VERSION_MINOR),
+        (1 << 24) | MAX_PROTOCOL_VERSION_MINOR
+    );
+    assert_eq!(encode_protocol_version(0, 0), 0);
 }
 
 #[test]
@@ -211,12 +229,12 @@ fn proposal_record_dynamic_fields_roundtrip() {
             proposed_at_height: 100,
             yes_votes: 0,
             no_votes: 0,
-            version: "v9.8.7".into(),
+            version: V9_8,
             info: b"dynamic-bytes-payload".to_vec(),
         };
         update.proposals.create(&record).unwrap();
         let loaded = update.proposals.get(proposal_id).unwrap().unwrap();
-        assert_eq!(loaded.version, "v9.8.7");
+        assert_eq!(loaded.version, V9_8);
         assert_eq!(loaded.info, b"dynamic-bytes-payload");
     });
 }
@@ -258,7 +276,7 @@ fn dispatch_create_proposal_and_get_proposal() {
     with_update(|storage| {
         let current = 100u64;
         let create_data = IUpdate::createProposalCall {
-            version: "v1.2.3".into(),
+            version: V1_2,
             activationHeight: min_activation(current),
             info: b"notes".to_vec().into(),
         }
@@ -275,7 +293,7 @@ fn dispatch_create_proposal_and_get_proposal() {
         let ret_bytes = dispatch(storage.clone(), &get_data, PROPOSER, U256::ZERO).unwrap();
         let ret = IUpdate::getProposalCall::abi_decode_returns(&ret_bytes).unwrap();
         assert_eq!(ret.proposalId, proposal_id);
-        assert_eq!(ret.version, "v1.2.3");
+        assert_eq!(ret.version, V1_2);
         assert_eq!(ret.info.as_ref(), b"notes");
         assert_eq!(ret.status, IUpdate::ProposalStatus::Pending);
     });
@@ -286,7 +304,7 @@ fn dispatch_cast_vote_and_reject_duplicate() {
     with_update(|storage| {
         let current = 50u64;
         let create_data = IUpdate::createProposalCall {
-            version: "v1.0.0".into(),
+            version: V1_0,
             activationHeight: min_activation(current),
             info: Default::default(),
         }
@@ -319,7 +337,7 @@ fn dispatch_cancel_proposal() {
     with_update(|storage| {
         let current = 10u64;
         let create_data = IUpdate::createProposalCall {
-            version: "v2.0.0".into(),
+            version: V2_0,
             activationHeight: min_activation(current),
             info: Default::default(),
         }
@@ -347,28 +365,26 @@ fn dispatch_cancel_proposal() {
 fn dispatch_active_version_and_pending_list() {
     with_update(|storage| {
         let mut update = Update::new(storage.clone());
-        update.set_active_version("v3.0.0", 42).unwrap();
+        update.set_active_version(V3_0, 42).unwrap();
 
         let active_data = IUpdate::getActiveVersionCall {}.abi_encode();
         let active_bytes = dispatch(storage.clone(), &active_data, PROPOSER, U256::ZERO).unwrap();
         assert_eq!(
             IUpdate::getActiveVersionCall::abi_decode_returns(&active_bytes).unwrap(),
-            "v3.0.0"
+            V3_0
         );
 
         let is_active_data = IUpdate::isVersionActiveCall {
-            version: "v3.0.0".into(),
+            version: V3_0,
         }
         .abi_encode();
         let is_active_bytes =
             dispatch(storage.clone(), &is_active_data, PROPOSER, U256::ZERO).unwrap();
-        assert!(
-            IUpdate::isVersionActiveCall::abi_decode_returns(&is_active_bytes).unwrap()
-        );
+        assert!(IUpdate::isVersionActiveCall::abi_decode_returns(&is_active_bytes).unwrap());
 
         let current = 100u64;
         let create_data = IUpdate::createProposalCall {
-            version: "v3.1.0".into(),
+            version: V3_1,
             activationHeight: min_activation(current),
             info: Default::default(),
         }

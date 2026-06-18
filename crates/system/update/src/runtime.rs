@@ -3,9 +3,10 @@ use alloy_primitives::{Address, U256};
 use outbe_primitives::error::Result;
 
 use crate::constants::{MAX_PENDING_PLANS, MIN_ACTIVATION_BUFFER, VOTING_WINDOW_BLOCKS};
+use crate::ProtocolVersion;
 use crate::errors::UpdateError;
 use crate::schema::Update;
-use crate::state::{normalize_version, version_gt, ProposalStatus, VoteKind};
+use crate::state::{version_gt, ProposalStatus, VoteKind};
 
 impl Update<'_> {
     /// Creates a pending upgrade proposal after deterministic validation.
@@ -14,12 +15,11 @@ impl Update<'_> {
     pub fn create_proposal(
         &mut self,
         proposer: Address,
-        version: &str,
+        version: ProtocolVersion,
         activation_height: u64,
         info: &[u8],
         current_height: u64,
     ) -> Result<U256> {
-        let normalized = normalize_version(version)?;
         let min_activation = current_height
             .saturating_add(VOTING_WINDOW_BLOCKS)
             .saturating_add(MIN_ACTIVATION_BUFFER);
@@ -28,7 +28,7 @@ impl Update<'_> {
         }
 
         if let Some(active) = self.get_active_version()? {
-            if !version_gt(&normalized, &active) {
+            if !version_gt(version, active) {
                 return Err(UpdateError::DowngradeNotAllowed.into());
             }
         }
@@ -40,7 +40,7 @@ impl Update<'_> {
 
         let voting_deadline = current_height.saturating_add(VOTING_WINDOW_BLOCKS);
         self.write_proposal(
-            &normalized,
+            version,
             activation_height,
             voting_deadline,
             info,

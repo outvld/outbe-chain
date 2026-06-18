@@ -1,7 +1,9 @@
 use alloy_primitives::{Address, B256, U256};
 use outbe_macros::{contract, storage_record, storage_schema};
 use outbe_primitives::addresses::UPDATE_ADDRESS;
-use outbe_primitives::storage::types::{Mapping, StorageBytes};
+use outbe_primitives::storage::types::Mapping;
+
+use crate::ProtocolVersion;
 
 /// Upgrade proposal record keyed by `id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,7 +13,7 @@ pub struct ProposalRecord {
     pub id: U256,
 
     #[attribute(order = 0)]
-    pub version: String,
+    pub version: ProtocolVersion,
 
     #[attribute(order = 1)]
     pub activation_height: u64,
@@ -73,7 +75,7 @@ pub struct Update {
     pub proposal_count: outbe_primitives::storage::dsl::Value<U256>,
 
     #[attribute(order = 1)]
-    pub active_version: StorageBytes,
+    pub active_version: outbe_primitives::storage::dsl::Value<ProtocolVersion>,
 
     #[attribute(order = 2)]
     pub active_version_height: outbe_primitives::storage::dsl::Value<u64>,
@@ -88,5 +90,5 @@ pub struct Update {
     pub votes: outbe_primitives::storage::dsl::Map<B256, VoteRecord>,
 
     #[attribute(order = 6)]
-    pub version_history: Mapping<u64, StorageBytes>,
+    pub version_history: Mapping<u64, ProtocolVersion>,
 }
