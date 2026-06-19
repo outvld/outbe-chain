@@ -44,7 +44,12 @@ impl From<ProtocolVersion> for u32 {
 
 impl std::fmt::Display for ProtocolVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        write!(
+            f,
+            "v{}.{}",
+            protocol_version_major(*self),
+            protocol_version_minor(*self)
+        )
     }
 }
 
@@ -181,13 +186,6 @@ pub const fn try_parse_protocol_version(
     Ok(encode_protocol_version(major, minor))
 }
 
-pub const fn parse_protocol_version(input: &str) -> ProtocolVersion {
-    match try_parse_protocol_version(input) {
-        Ok(version) => version,
-        Err(_) => panic!("invalid protocol version"),
-    }
-}
-
 /// Returns the major part of an encoded protocol version.
 pub const fn protocol_version_major(version: ProtocolVersion) -> u8 {
     (version.raw() >> PROTOCOL_VERSION_MINOR_BITS) as u8
@@ -200,12 +198,7 @@ pub const fn protocol_version_minor(version: ProtocolVersion) -> u32 {
 
 /// Formats a protocol version as `v{major}.{minor} ({raw})`.
 pub fn format_protocol_version(version: ProtocolVersion) -> String {
-    format!(
-        "v{}.{} ({})",
-        protocol_version_major(version),
-        protocol_version_minor(version),
-        version.raw()
-    )
+    format!("{version} ({})", version.raw())
 }
 
 #[cfg(test)]
@@ -231,7 +224,12 @@ mod tests {
 
     #[test]
     fn parse_protocol_version_is_const() {
-        const VERSION: ProtocolVersion = parse_protocol_version("1.2");
+        const VERSION: ProtocolVersion = const {
+            match try_parse_protocol_version("1.2") {
+                Ok(version) => version,
+                Err(_) => panic!("invalid protocol version"),
+            }
+        };
         assert_eq!(VERSION, encode_protocol_version(1, 2));
     }
 
@@ -262,6 +260,7 @@ mod tests {
 
     #[test]
     fn formats_protocol_version_with_raw_value() {
+        assert_eq!(encode_protocol_version(1, 2).to_string(), "v1.2");
         assert_eq!(
             format_protocol_version(encode_protocol_version(1, 2)),
             "v1.2 (16777218)"

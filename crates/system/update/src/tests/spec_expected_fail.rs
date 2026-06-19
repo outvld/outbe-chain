@@ -21,7 +21,7 @@ use crate::api::{get_active_version, version_at_height};
 use crate::handlers::{UpgradeHandlerRegistry, UpgradeHandlerSpec};
 use crate::precompile::{dispatch, IUpdate};
 use crate::schema::Update;
-use crate::state::{protocol_version_major, protocol_version_minor, ProposalStatus, VoteKind};
+use crate::state::{ProposalStatus, VoteKind};
 use crate::{encode_protocol_version, ProtocolVersion};
 
 use super::{
@@ -67,14 +67,6 @@ fn with_four_validators_at<F: FnOnce(StorageHandle, u64)>(
 
 fn with_four_validators_provider<F: FnOnce(StorageHandle)>(f: F) -> HashMapStorageProvider {
     with_four_validators_at(100, |storage, _| f(storage))
-}
-
-fn spec_version_string(version: ProtocolVersion) -> String {
-    format!(
-        "v{}.{}.0",
-        protocol_version_major(version),
-        protocol_version_minor(version)
-    )
 }
 
 fn dispatch_create_proposal(
@@ -132,7 +124,7 @@ fn assert_spec_active_version_string(storage: StorageHandle, expected: &str) {
 fn dispatch_get_active_version_string(storage: StorageHandle) -> String {
     // Draft spec: `getActiveVersion() -> string`. Current ABI returns `uint32`.
     let version = dispatch_get_active_version_u32(storage);
-    spec_version_string(ProtocolVersion::from(version))
+    ProtocolVersion::from(version).to_string()
 }
 
 // ---- state / lifecycle specs ------------------------------------------------
@@ -209,7 +201,7 @@ fn state_active_version_history_roundtrip() {
             version_at_height(storage.clone(), height).unwrap(),
             Some(V1_2)
         );
-        assert_spec_active_version_string(storage, "v1.2.0");
+        assert_spec_active_version_string(storage, "v1.2");
     });
 }
 
@@ -261,7 +253,7 @@ fn lifecycle_tally_expires_with_two_of_four_yes() {
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Expired);
-        assert_spec_active_version_string(storage, "v0.0.0");
+        assert_spec_active_version_string(storage, "v0.0");
     });
 }
 
@@ -288,7 +280,7 @@ fn lifecycle_pending_to_approved_to_activated() {
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Activated);
         assert_eq!(get_active_version(storage.clone()).unwrap(), Some(V1_2));
-        assert_spec_active_version_string(storage, "v1.2.0");
+        assert_spec_active_version_string(storage, "v1.2");
     });
 }
 
@@ -554,6 +546,6 @@ fn downgrade_attempt_rejected_at_proposal_creation() {
             ),
             "downgrade proposal must be rejected"
         );
-        assert_spec_active_version_string(storage, "v1.3.0");
+        assert_spec_active_version_string(storage, "v1.3");
     });
 }

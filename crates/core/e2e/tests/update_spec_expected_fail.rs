@@ -13,7 +13,7 @@ use outbe_primitives::error::PrecompileError;
 use outbe_primitives::storage::{hashmap::HashMapStorageProvider, StorageHandle};
 use outbe_update::precompile::{dispatch, IUpdate};
 use outbe_update::schema::Update;
-use outbe_update::state::{protocol_version_major, protocol_version_minor, ProposalStatus};
+use outbe_update::state::ProposalStatus;
 use outbe_update::{encode_protocol_version, ProtocolVersion};
 use outbe_validatorset::contract::ValidatorSet;
 
@@ -69,14 +69,6 @@ fn min_activation(current: u64) -> u64 {
     current
         .saturating_add(outbe_update::constants::VOTING_WINDOW_BLOCKS)
         .saturating_add(outbe_update::constants::MIN_ACTIVATION_BUFFER)
-}
-
-fn spec_version_string(version: ProtocolVersion) -> String {
-    format!(
-        "v{}.{}.0",
-        protocol_version_major(version),
-        protocol_version_minor(version)
-    )
 }
 
 fn with_runtime_at<F: FnOnce(StorageHandle, u64)>(current: u64, f: F) {
@@ -163,7 +155,7 @@ fn e2e_full_flow_three_yes_activates() {
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Activated);
         assert_eq!(dispatch_get_active_version_u32(storage), V1_2.raw());
-        assert_eq!(spec_version_string(V1_2), "v1.2.0");
+        assert_eq!(V1_2.to_string(), "v1.2");
     });
 }
 
