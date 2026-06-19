@@ -234,6 +234,18 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_parse_update_propose_without_version() {
+        let cli = Cli::try_parse_from([
+            "outbe-cli",
+            "update",
+            "propose",
+            "--activation-height",
+            "1000",
+        ]);
+        assert!(cli.is_ok());
+    }
+
+    #[test]
     fn test_cli_parse_update_vote_yes() {
         let cli = Cli::try_parse_from([
             "outbe-cli",
@@ -242,6 +254,20 @@ mod tests {
             "--proposal-id",
             "1",
             "--yes",
+        ]);
+        assert!(cli.is_ok());
+    }
+
+    #[test]
+    fn test_cli_parse_update_vote_force() {
+        let cli = Cli::try_parse_from([
+            "outbe-cli",
+            "update",
+            "vote",
+            "--proposal-id",
+            "1",
+            "--yes",
+            "--force",
         ]);
         assert!(cli.is_ok());
     }

@@ -6744,6 +6744,7 @@ dependencies = [
  "outbe-primitives",
  "outbe-rpc",
  "outbe-tee",
+ "outbe-update",
  "reqwest 0.12.28",
  "ring",
  "serde",

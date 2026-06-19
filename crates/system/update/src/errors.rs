@@ -11,7 +11,7 @@ pub enum UpdateError {
     AlreadyVoted,
     #[error("voting window closed")]
     VotingClosed,
-    #[error("activation height is in the past")]
+    #[error("activation height should be 86400 blocks from current height (1 day)")]
     HeightInPast,
     #[error("invalid protocol version; expected non-zero u32 encoded as u8 major + u24 minor")]
     InvalidVersion,

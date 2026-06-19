@@ -16,6 +16,7 @@ alloy-sol-types.workspace = true
 alloy-eips.workspace = true
 outbe-common.workspace = true
 outbe-primitives.workspace = true
+outbe-update.workspace = true
 # TEE enclave client + wire protocol (the `tee join` offer-key registration).
 outbe-tee.workspace = true
 
