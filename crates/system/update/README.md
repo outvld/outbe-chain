@@ -34,13 +34,20 @@ Using this rules, the on-chain version uses one `u32` slot, encoded as `u8 major
 
 Unset storage slots default to version `0`, which is the initial version - before upgrade governance is activated.
 
-## Limitations
+### Limitations
 
 - Caps for versions: max major: `255`, max minor: `16_777_215`.
 - Semver requires bump minor version when new API is added, e.g. new RPC method.
 - Semver requires bump major version when old outdated API is removed.
 
-## Alternatives
+### Alternatives
 
 - Instead of mapping semver version on chain, we can use a separate version ID as constant, with manual bump on inter-node synchronization changes.
 - We can have per-feature governance, this would require sublte contract interface changes, but will allow more granular control over each feature.
+
+## Events
+
+Write-call events (`ProposalCreated`, `VoteCast`, `ProposalCancelled`) are emitted from the Update precompile via normal `storage.emit_event` and appear in the caller's transaction receipt (`eth_getTransactionReceipt` / `eth_getLogs`).
+
+Lifecycle events (`ProposalApproved`, `ProposalRejected`, `ProposalExpired`, `UpgradeActivated`) are emitted from `process_begin_block` when tally or activation runs. They use the same storage event API but run under the direct pre-execution hook path, so they are **not** promised as EVM transaction receipt logs under current wiring. No synthetic/system receipts are used for Update domain events. Later, we may implement synthetic receipts for these events.
+

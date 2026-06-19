@@ -10,6 +10,7 @@ use outbe_primitives::error::Result;
 use outbe_primitives::storage::StorageHandle;
 
 use crate::api::is_version_active_eq;
+use crate::constants::VOTING_WINDOW_BLOCKS;
 use crate::errors::UpdateError;
 use crate::schema::Update;
 use crate::state::{ProposalInfo, ProposalStatus, VoteTally};
@@ -55,21 +56,40 @@ pub fn dispatch(
         match call {
             createProposal(c) => mutate(c, caller, |sender, c| {
                 let block_number = storage.block_number()?;
-                update.create_proposal(
+                let proposal_id = update.create_proposal(
                     sender,
                     c.version,
                     c.activationHeight,
                     c.info.as_ref(),
                     block_number,
-                )
+                )?;
+                let voting_deadline = block_number.saturating_add(VOTING_WINDOW_BLOCKS);
+                update.emit(IUpdate::ProposalCreated {
+                    proposalId: proposal_id,
+                    proposer: sender,
+                    version: c.version,
+                    activationHeight: c.activationHeight,
+                    votingDeadlineHeight: voting_deadline,
+                    info: c.info.clone(),
+                })?;
+                Ok(proposal_id)
             }),
             castVote(c) => mutate_void(c, caller, |sender, c| {
                 let block_number = storage.block_number()?;
-                update.cast_vote_approve(c.proposalId, sender, c.approve, block_number)
+                update.cast_vote_approve(c.proposalId, sender, c.approve, block_number)?;
+                update.emit(IUpdate::VoteCast {
+                    proposalId: c.proposalId,
+                    voter: sender,
+                    approve: c.approve,
+                })
             }),
             cancelProposal(c) => mutate_void(c, caller, |sender, c| {
                 let block_number = storage.block_number()?;
-                update.cancel_proposal(c.proposalId, sender, block_number)
+                update.cancel_proposal(c.proposalId, sender, block_number)?;
+                update.emit(IUpdate::ProposalCancelled {
+                    proposalId: c.proposalId,
+                    proposer: sender,
+                })
             }),
             getProposal(c) => view(c, |c| {
                 let proposal = update

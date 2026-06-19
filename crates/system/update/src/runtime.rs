@@ -9,9 +9,18 @@ use crate::constants::{
     VOTING_WINDOW_BLOCKS,
 };
 use crate::errors::UpdateError;
+use crate::precompile::IUpdate;
 use crate::schema::Update;
-use crate::state::{version_gt, ProposalStatus, VoteKind};
+use crate::state::{version_gt, ProposalStatus, VoteKind, VoteTally};
 use crate::ProtocolVersion;
+
+fn vote_tally_result(proposal: &crate::state::ProposalInfo) -> IUpdate::VoteTally {
+    let tally = VoteTally::from(proposal);
+    IUpdate::VoteTally {
+        yes: tally.yes,
+        no: tally.no,
+    }
+}
 
 /// Returns `true` when `yes_votes` reaches the configured 2/3 quorum.
 pub const fn quorum_reached(yes_votes: u64, active_validator_count: u32) -> bool {
@@ -170,16 +179,35 @@ impl Update<'_> {
 
         let vs = ValidatorSet::new(self.storage.clone());
         let active_count = vs.active_validator_count()?;
-        let next_status = if quorum_reached(proposal.yes_votes, active_count) {
-            if self.has_approved_activation_conflict(proposal_id, proposal.activation_height)? {
-                ProposalStatus::Rejected
+        let state = vote_tally_result(&proposal);
+        if quorum_reached(proposal.yes_votes, active_count) {
+            if let Some(conflicting_proposal_id) =
+                self.approved_activation_conflict(proposal_id, proposal.activation_height)?
+            {
+                self.set_proposal_status(proposal_id, ProposalStatus::Rejected)?;
+                self.emit(IUpdate::ProposalRejected {
+                    proposalId: proposal_id,
+                    state,
+                    conflictingproposalId: conflicting_proposal_id,
+                })
             } else {
-                ProposalStatus::Approved
+                let activation_height = proposal.activation_height;
+                let version = proposal.version;
+                self.set_proposal_status(proposal_id, ProposalStatus::Approved)?;
+                self.emit(IUpdate::ProposalApproved {
+                    proposalId: proposal_id,
+                    state,
+                    activationHeight: activation_height,
+                    version,
+                })
             }
         } else {
-            ProposalStatus::Expired
-        };
-        self.set_proposal_status(proposal_id, next_status)
+            self.set_proposal_status(proposal_id, ProposalStatus::Expired)?;
+            self.emit(IUpdate::ProposalExpired {
+                proposalId: proposal_id,
+                state,
+            })
+        }
     }
 
     fn activate_proposal(&mut self, proposal_id: U256) -> Result<()> {
@@ -191,14 +219,18 @@ impl Update<'_> {
         }
 
         self.set_active_version(proposal.version, proposal.activation_height)?;
-        self.set_proposal_status(proposal_id, ProposalStatus::Activated)
+        self.set_proposal_status(proposal_id, ProposalStatus::Activated)?;
+        self.emit(IUpdate::UpgradeActivated {
+            version: proposal.version,
+            activationHeight: proposal.activation_height,
+        })
     }
 
-    fn has_approved_activation_conflict(
+    fn approved_activation_conflict(
         &self,
         proposal_id: U256,
         activation_height: u64,
-    ) -> Result<bool> {
+    ) -> Result<Option<U256>> {
         for tracked_id in self.list_waiting_for_activation_proposal_ids()? {
             if tracked_id == proposal_id {
                 continue;
@@ -207,9 +239,9 @@ impl Update<'_> {
                 continue;
             };
             if other.activation_height == activation_height {
-                return Ok(true);
+                return Ok(Some(tracked_id));
             }
         }
-        Ok(false)
+        Ok(None)
     }
 }
