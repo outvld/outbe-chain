@@ -13,6 +13,7 @@ mod lifecycle;
 mod precompile;
 mod proposals;
 mod records;
+mod spec_expected_fail;
 
 pub(super) const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
 pub(super) const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");

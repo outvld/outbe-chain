@@ -6892,6 +6892,8 @@ dependencies = [
  "outbe-promislimit",
  "outbe-tribute",
  "outbe-vaultprovider",
+ "outbe-update",
+ "outbe-validatorset",
 ]
 
 [[package]]

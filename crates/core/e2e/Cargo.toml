@@ -17,6 +17,8 @@ outbe-vaultprovider.workspace = true
 outbe-gratis.workspace = true
 outbe-oracle.workspace = true
 outbe-promislimit.workspace = true
+outbe-update.workspace = true
+outbe-validatorset.workspace = true
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 
