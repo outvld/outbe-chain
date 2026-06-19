@@ -2,7 +2,7 @@
 
 use crate::constants::PROTOCOL_VERSION;
 use crate::handlers::UpgradeHandlerRegistry;
-use crate::state::{version_gt, ProposalInfo};
+use crate::state::ProposalInfo;
 use crate::version::format_protocol_version;
 use crate::ProtocolVersion;
 
@@ -10,7 +10,7 @@ use crate::ProtocolVersion;
 ///
 /// Fresh/pre-governance chains use `active_version == 0` and always pass.
 pub fn assert_binary_protocol_compatible(active_version: ProtocolVersion) -> Result<(), String> {
-    if active_version == 0 || !version_gt(active_version, PROTOCOL_VERSION) {
+    if active_version.is_zero() || active_version <= PROTOCOL_VERSION {
         return Ok(());
     }
 
@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn allows_pre_governance_active_version_zero() {
-        assert_binary_protocol_compatible(0).unwrap();
+        assert_binary_protocol_compatible(ProtocolVersion::ZERO).unwrap();
     }
 
     #[test]

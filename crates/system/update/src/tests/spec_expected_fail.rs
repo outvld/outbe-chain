@@ -85,7 +85,7 @@ fn dispatch_create_proposal(
     info: &[u8],
 ) -> U256 {
     let create_data = IUpdate::createProposalCall {
-        version,
+        version: version.raw(),
         activationHeight: activation,
         info: info.to_vec().into(),
     }
@@ -132,7 +132,7 @@ fn assert_spec_active_version_string(storage: StorageHandle, expected: &str) {
 fn dispatch_get_active_version_string(storage: StorageHandle) -> String {
     // Draft spec: `getActiveVersion() -> string`. Current ABI returns `uint32`.
     let version = dispatch_get_active_version_u32(storage);
-    spec_version_string(version)
+    spec_version_string(ProtocolVersion::from(version))
 }
 
 // ---- state / lifecycle specs ------------------------------------------------
@@ -154,7 +154,7 @@ fn state_create_proposal_persists_plan_and_pending_index() {
         assert_eq!(ret.proposer, PROPOSER);
         assert_eq!(ret.proposedAtHeight, current);
         assert_eq!(ret.activationHeight, activation);
-        assert_eq!(ret.version, V1_2);
+        assert_eq!(ret.version, V1_2.raw());
         assert_eq!(ret.info.as_ref(), b"release-notes");
         assert_eq!(ret.status, IUpdate::ProposalStatus::Pending);
 
@@ -523,7 +523,7 @@ fn abi_get_plan_returns_spec_plan_shape() {
         assert_eq!(ret.proposer, PROPOSER);
         assert_eq!(ret.proposedAtHeight, current);
         assert_eq!(ret.activationHeight, activation);
-        assert_eq!(ret.version, V1_2);
+        assert_eq!(ret.version, V1_2.raw());
         assert_eq!(ret.info.as_ref(), b"meta");
         assert_eq!(ret.status, IUpdate::ProposalStatus::Pending);
     });
@@ -538,7 +538,7 @@ fn downgrade_attempt_rejected_at_proposal_creation() {
         let err = dispatch(
             storage.clone(),
             &IUpdate::createProposalCall {
-                version: encode_protocol_version(1, 2),
+                version: encode_protocol_version(1, 2).raw(),
                 activationHeight: min_activation(current),
                 info: Default::default(),
             }

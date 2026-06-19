@@ -16,14 +16,11 @@ pub mod startup;
 pub mod state;
 pub mod version;
 
-/// On-chain protocol version: `u8 major + u24 minor` encoded as `u32`.
-pub type ProtocolVersion = u32;
-
 pub use handlers::{
     UpgradeHandler, UpgradeHandlerRegistry, UpgradeHandlerSpec, EMPTY_UPGRADE_HANDLER_REGISTRY,
 };
 pub use schema::Update;
-pub use version::encode_protocol_version;
+pub use version::{encode_protocol_version, ProtocolVersion};
 
 #[cfg(test)]
 mod tests;

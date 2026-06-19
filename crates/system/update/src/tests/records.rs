@@ -35,10 +35,10 @@ fn protocol_version_encoding_roundtrip() {
     assert_eq!(protocol_version_major(version), 7);
     assert_eq!(protocol_version_minor(version), 42);
     assert_eq!(
-        encode_protocol_version(1, MAX_PROTOCOL_VERSION_MINOR),
+        encode_protocol_version(1, MAX_PROTOCOL_VERSION_MINOR).raw(),
         (1 << 24) | MAX_PROTOCOL_VERSION_MINOR
     );
-    assert_eq!(encode_protocol_version(0, 0), 0);
+    assert_eq!(encode_protocol_version(0, 0).raw(), 0);
 }
 
 #[test]

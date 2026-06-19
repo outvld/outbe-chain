@@ -86,7 +86,7 @@ fn get_proposal_return_matches_abi_shape() {
         assert_eq!(ret.proposalId, proposal_id);
         assert_eq!(ret.proposer, PROPOSER);
         assert_eq!(ret.proposedAtHeight, current);
-        assert_eq!(ret.version, V1_0);
+        assert_eq!(ret.version, V1_0.raw());
         assert_eq!(ret.info.as_ref(), b"meta");
         assert_eq!(ret.status, IUpdate::ProposalStatus::Pending);
         assert_eq!(ret.state.yes, 0);

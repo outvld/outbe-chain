@@ -94,7 +94,7 @@ fn dispatch_create_proposal(
     activation: u64,
 ) -> U256 {
     let create_data = IUpdate::createProposalCall {
-        version,
+        version: version.raw(),
         activationHeight: activation,
         info: Default::default(),
     }
@@ -162,7 +162,7 @@ fn e2e_full_flow_three_yes_activates() {
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Activated);
-        assert_eq!(dispatch_get_active_version_u32(storage), V1_2);
+        assert_eq!(dispatch_get_active_version_u32(storage), V1_2.raw());
         assert_eq!(spec_version_string(V1_2), "v1.2.0");
     });
 }
@@ -198,7 +198,7 @@ fn e2e_downgrade_attempt_rejected() {
         let err = dispatch(
             storage.clone(),
             &IUpdate::createProposalCall {
-                version: encode_protocol_version(1, 2),
+                version: encode_protocol_version(1, 2).raw(),
                 activationHeight: min_activation(current),
                 info: Default::default(),
             }
@@ -293,7 +293,7 @@ fn startup_binary_version_check_rejects_older_binary() {
 
 #[test]
 fn startup_binary_version_check_allows_pre_governance_chain() {
-    outbe_update::startup::assert_binary_protocol_compatible(0).unwrap();
+    outbe_update::startup::assert_binary_protocol_compatible(ProtocolVersion::ZERO).unwrap();
 }
 
 // RPC read methods (`outbe_getUpdateActiveVersion`, `outbe_getUpdateProposal`, etc.)

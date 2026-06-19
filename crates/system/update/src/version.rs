@@ -2,8 +2,65 @@
 //!
 //! Because string cannot be used in const functions, we use slice of bytes instead.
 
+use alloy_primitives::U256;
+use outbe_primitives::storage::types::{Storable, StorableType};
+
 use crate::constants::{MAX_PROTOCOL_VERSION_MINOR, PROTOCOL_VERSION_MINOR_BITS};
-use crate::ProtocolVersion;
+
+/// On-chain protocol version: `u8 major + u24 minor` encoded as `u32`.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct ProtocolVersion(u32);
+
+impl ProtocolVersion {
+    pub const ZERO: Self = Self(0);
+
+    /// Const fn impl From<u32> for ProtocolVersion.
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Const fn impl Into<u32> for ProtocolVersion.
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    pub const fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl From<u32> for ProtocolVersion {
+    fn from(value: u32) -> Self {
+        Self::from_raw(value)
+    }
+}
+
+impl From<ProtocolVersion> for u32 {
+    fn from(value: ProtocolVersion) -> Self {
+        value.raw()
+    }
+}
+
+impl std::fmt::Display for ProtocolVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl StorableType for ProtocolVersion {
+    const SLOTS: usize = 1;
+}
+
+impl Storable for ProtocolVersion {
+    fn from_word(word: U256) -> Self {
+        Self::from_raw(word.to::<u32>())
+    }
+
+    fn to_word(&self) -> U256 {
+        U256::from(self.raw())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ProtocolVersionParseError {
@@ -19,7 +76,7 @@ pub enum ProtocolVersionParseError {
 
 /// Encodes the protocol version as `u8 major + u24 minor`.
 pub const fn encode_protocol_version(major: u8, minor: u32) -> ProtocolVersion {
-    ((major as u32) << PROTOCOL_VERSION_MINOR_BITS) | minor
+    ProtocolVersion::from_raw(((major as u32) << PROTOCOL_VERSION_MINOR_BITS) | minor)
 }
 
 const fn parse_decimal_range(
@@ -106,7 +163,10 @@ pub const fn try_parse_protocol_version(
     }
 
     if dot_count == 0 {
-        return parse_decimal_range(bytes, 0, len, u32::MAX);
+        return match parse_decimal_range(bytes, 0, len, u32::MAX) {
+            Ok(value) => Ok(ProtocolVersion::from_raw(value)),
+            Err(err) => Err(err),
+        };
     }
 
     let major = match parse_decimal_range(bytes, 0, dot_index, u8::MAX as u32) {
@@ -130,20 +190,21 @@ pub const fn parse_protocol_version(input: &str) -> ProtocolVersion {
 
 /// Returns the major part of an encoded protocol version.
 pub const fn protocol_version_major(version: ProtocolVersion) -> u8 {
-    (version >> PROTOCOL_VERSION_MINOR_BITS) as u8
+    (version.raw() >> PROTOCOL_VERSION_MINOR_BITS) as u8
 }
 
 /// Returns the minor part of an encoded protocol version.
 pub const fn protocol_version_minor(version: ProtocolVersion) -> u32 {
-    version & MAX_PROTOCOL_VERSION_MINOR
+    version.raw() & MAX_PROTOCOL_VERSION_MINOR
 }
 
 /// Formats a protocol version as `v{major}.{minor} ({raw})`.
 pub fn format_protocol_version(version: ProtocolVersion) -> String {
     format!(
-        "v{}.{} ({version})",
+        "v{}.{} ({})",
         protocol_version_major(version),
-        protocol_version_minor(version)
+        protocol_version_minor(version),
+        version.raw()
     )
 }
 
@@ -180,7 +241,7 @@ mod tests {
             try_parse_protocol_version("1.2").unwrap(),
             encode_protocol_version(1, 2)
         );
-        assert_eq!(try_parse_protocol_version("65536").unwrap(), 65536);
+        assert_eq!(try_parse_protocol_version("65536").unwrap().raw(), 65536);
     }
 
     #[test]

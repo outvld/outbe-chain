@@ -139,16 +139,6 @@ pub const fn protocol_version_minor(version: ProtocolVersion) -> u32 {
     crate::version::protocol_version_minor(version)
 }
 
-/// Compares two protocol versions. Returns `true` if `left > right`.
-pub fn version_gt(left: ProtocolVersion, right: ProtocolVersion) -> bool {
-    left > right
-}
-
-/// Compares two protocol versions. Returns `true` if `left >= right`.
-pub fn version_gte(left: ProtocolVersion, right: ProtocolVersion) -> bool {
-    left >= right
-}
-
 impl Update<'_> {
     /// Returns the next proposal id without incrementing the counter.
     pub fn peek_next_proposal_id(&self) -> Result<U256> {

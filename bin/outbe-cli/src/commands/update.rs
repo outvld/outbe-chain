@@ -5,8 +5,8 @@ use alloy_sol_types::SolCall;
 use clap::Subcommand;
 use eyre::{Result, WrapErr};
 use outbe_update::constants::PROTOCOL_VERSION;
-use outbe_update::state::version_gt;
 use outbe_update::version::{format_protocol_version, try_parse_protocol_version};
+use outbe_update::ProtocolVersion;
 use serde_json::Value;
 
 use crate::abi::{IUpdate, UPDATE_ADDRESS};
@@ -80,12 +80,12 @@ impl UpdateCmd {
     }
 }
 
-fn parse_protocol_version(input: &str) -> Result<u32> {
+fn parse_protocol_version(input: &str) -> Result<ProtocolVersion> {
     try_parse_protocol_version(input)
         .map_err(|err| eyre::eyre!("invalid protocol version '{input}': {err}"))
 }
 
-fn resolve_proposal_version(version: Option<String>) -> Result<u32> {
+fn resolve_proposal_version(version: Option<String>) -> Result<ProtocolVersion> {
     match version {
         Some(value) => parse_protocol_version(&value),
         None => Ok(PROTOCOL_VERSION),
@@ -102,24 +102,28 @@ fn parse_info_bytes(info: Option<String>) -> Result<Vec<u8>> {
     Ok(info.into_bytes())
 }
 
-fn active_version_from_rpc(active: &Value) -> u32 {
-    active["version"].as_u64().unwrap_or(0) as u32
+fn active_version_from_rpc(active: &Value) -> ProtocolVersion {
+    ProtocolVersion::from(active["version"].as_u64().unwrap_or(0) as u32)
 }
 
-fn proposal_version_from_rpc(proposal: &Value) -> Result<u32> {
+fn proposal_version_from_rpc(proposal: &Value) -> Result<ProtocolVersion> {
     proposal["version"]
         .as_u64()
-        .map(|version| version as u32)
+        .map(|version| ProtocolVersion::from(version as u32))
         .ok_or_else(|| eyre::eyre!("proposal response missing version field"))
 }
 
-async fn fetch_active_version(client: &(impl Rpc + Sync)) -> Result<u32> {
+async fn fetch_active_version(client: &(impl Rpc + Sync)) -> Result<ProtocolVersion> {
     let active = client.outbe_get_update_active_version().await?;
     Ok(active_version_from_rpc(&active))
 }
 
-fn ensure_propose_version_compatible(proposed: u32, active: u32, binary: u32) -> Result<()> {
-    if !version_gt(proposed, active) {
+fn ensure_propose_version_compatible(
+    proposed: ProtocolVersion,
+    active: ProtocolVersion,
+    binary: ProtocolVersion,
+) -> Result<()> {
+    if proposed <= active {
         eyre::bail!(
             "proposed version {} must be greater than active on-chain version {}; use --force to override",
             format_protocol_version(proposed),
@@ -136,7 +140,10 @@ fn ensure_propose_version_compatible(proposed: u32, active: u32, binary: u32) ->
     Ok(())
 }
 
-fn ensure_approve_version_compatible(proposal_version: u32, binary: u32) -> Result<()> {
+fn ensure_approve_version_compatible(
+    proposal_version: ProtocolVersion,
+    binary: ProtocolVersion,
+) -> Result<()> {
     if proposal_version > binary {
         eyre::bail!(
             "proposal version {} exceeds binary protocol version {}; upgrade the binary or use --force",
@@ -164,7 +171,7 @@ async fn propose(
     let info_bytes = parse_info_bytes(info)?;
 
     let call = IUpdate::createProposalCall {
-        version,
+        version: version.into(),
         activationHeight: activation_height,
         info: info_bytes.into(),
     };
@@ -219,7 +226,9 @@ async fn status(client: &(impl Rpc + Sync), proposal_id: Option<U256>) -> Result
     let active = client.outbe_get_update_active_version().await?;
     println!(
         "Active version: {} (activation height {})",
-        format_protocol_version(active["version"].as_u64().unwrap_or(0) as u32),
+        format_protocol_version(ProtocolVersion::from(
+            active["version"].as_u64().unwrap_or(0) as u32
+        )),
         active["activationHeight"].as_u64().unwrap_or(0)
     );
     println!(
@@ -254,7 +263,7 @@ fn print_proposal(label: &str, proposal: &Value) {
         .map(str::to_string)
         .or_else(|| proposal["proposalId"].as_u64().map(|n| n.to_string()))
         .unwrap_or_else(|| "?".to_string());
-    let version = proposal["version"].as_u64().unwrap_or(0) as u32;
+    let version = ProtocolVersion::from(proposal["version"].as_u64().unwrap_or(0) as u32);
     let status = proposal["status"].as_str().unwrap_or("unknown");
     let activation = proposal["activationHeight"].as_u64().unwrap_or(0);
     let deadline = proposal["votingDeadlineHeight"].as_u64().unwrap_or(0);
@@ -283,7 +292,7 @@ mod tests {
 
     #[test]
     fn parse_protocol_version_raw_u32() {
-        assert_eq!(parse_protocol_version("65536").unwrap(), 65536);
+        assert_eq!(parse_protocol_version("65536").unwrap().raw(), 65536);
     }
 
     #[test]
@@ -301,9 +310,12 @@ mod tests {
 
     #[test]
     fn propose_version_must_not_exceed_binary() {
-        let err =
-            ensure_propose_version_compatible(encode_protocol_version(9, 0), 0, PROTOCOL_VERSION)
-                .unwrap_err();
+        let err = ensure_propose_version_compatible(
+            encode_protocol_version(9, 0),
+            ProtocolVersion::ZERO,
+            PROTOCOL_VERSION,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("exceeds binary protocol version"));
     }
 
@@ -358,7 +370,7 @@ mod tests {
     async fn propose_sends_create_proposal_tx() {
         let private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
         let call = IUpdate::createProposalCall {
-            version: encode_protocol_version(1, 2),
+            version: encode_protocol_version(1, 2).into(),
             activationHeight: 1000,
             info: b"notes".to_vec().into(),
         };
@@ -379,7 +391,7 @@ mod tests {
     async fn propose_rejects_incompatible_version_without_force() {
         let mock = MockRpc {
             update_active_version: Ok(serde_json::json!({
-                "version": PROTOCOL_VERSION,
+                "version": PROTOCOL_VERSION.raw(),
                 "major": 0,
                 "minor": 1,
                 "activationHeight": 1
@@ -406,7 +418,7 @@ mod tests {
         let mock = MockRpc {
             update_proposal: Ok(Some(serde_json::json!({
                 "proposalId": 1,
-                "version": encode_protocol_version(9, 0),
+                "version": encode_protocol_version(9, 0).raw(),
                 "status": "pending",
                 "state": { "yes": 0, "no": 0 }
             }))),

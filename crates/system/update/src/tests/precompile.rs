@@ -21,7 +21,7 @@ fn dispatch_create_proposal_and_get_proposal() {
     with_update(|storage| {
         let current = 100u64;
         let create_data = IUpdate::createProposalCall {
-            version: V1_2,
+            version: V1_2.raw(),
             activationHeight: min_activation(current),
             info: b"notes".to_vec().into(),
         }
@@ -38,7 +38,7 @@ fn dispatch_create_proposal_and_get_proposal() {
         let ret_bytes = dispatch(storage.clone(), &get_data, PROPOSER, U256::ZERO).unwrap();
         let ret = IUpdate::getProposalCall::abi_decode_returns(&ret_bytes).unwrap();
         assert_eq!(ret.proposalId, proposal_id);
-        assert_eq!(ret.version, V1_2);
+        assert_eq!(ret.version, V1_2.raw());
         assert_eq!(ret.info.as_ref(), b"notes");
         assert_eq!(ret.status, IUpdate::ProposalStatus::Pending);
     });
@@ -49,7 +49,7 @@ fn dispatch_cast_vote_and_reject_duplicate() {
     with_update(|storage| {
         let current = 50u64;
         let create_data = IUpdate::createProposalCall {
-            version: V1_0,
+            version: V1_0.raw(),
             activationHeight: min_activation(current),
             info: Default::default(),
         }
@@ -82,7 +82,7 @@ fn dispatch_cancel_proposal() {
     with_update(|storage| {
         let current = 10u64;
         let create_data = IUpdate::createProposalCall {
-            version: V2_0,
+            version: V2_0.raw(),
             activationHeight: min_activation(current),
             info: Default::default(),
         }
@@ -116,17 +116,20 @@ fn dispatch_active_version_and_pending_list() {
         let active_bytes = dispatch(storage.clone(), &active_data, PROPOSER, U256::ZERO).unwrap();
         assert_eq!(
             IUpdate::getActiveVersionCall::abi_decode_returns(&active_bytes).unwrap(),
-            V3_0
+            V3_0.raw()
         );
 
-        let is_active_data = IUpdate::isVersionActiveCall { version: V3_0 }.abi_encode();
+        let is_active_data = IUpdate::isVersionActiveCall {
+            version: V3_0.raw(),
+        }
+        .abi_encode();
         let is_active_bytes =
             dispatch(storage.clone(), &is_active_data, PROPOSER, U256::ZERO).unwrap();
         assert!(IUpdate::isVersionActiveCall::abi_decode_returns(&is_active_bytes).unwrap());
 
         let current = 100u64;
         let create_data = IUpdate::createProposalCall {
-            version: V3_1,
+            version: V3_1.raw(),
             activationHeight: min_activation(current),
             info: Default::default(),
         }

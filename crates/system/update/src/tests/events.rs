@@ -14,7 +14,7 @@ fn dispatch_emits_proposal_created_vote_cast_and_cancelled_events() {
     let provider = with_update_provider(|storage| {
         let current = 100u64;
         let create_data = IUpdate::createProposalCall {
-            version: V1_2,
+            version: V1_2.raw(),
             activationHeight: min_activation(current),
             info: b"notes".to_vec().into(),
         }

@@ -235,7 +235,7 @@ impl From<outbe_update::state::ProposalInfo> for UpdateProposalInfo {
             proposed_at_height: proposal.proposed_at_height,
             activation_height: proposal.activation_height,
             voting_deadline_height: proposal.voting_deadline_height,
-            version: proposal.version,
+            version: proposal.version.into(),
             major: outbe_update::state::protocol_version_major(proposal.version),
             minor: outbe_update::state::protocol_version_minor(proposal.version),
             info: hex::encode(&proposal.info),
@@ -259,7 +259,7 @@ impl From<outbe_update::state::VoteInfo> for UpdateVoteInfo {
 impl From<(outbe_update::ProtocolVersion, u64)> for UpdateActiveVersionInfo {
     fn from((version, activation_height): (outbe_update::ProtocolVersion, u64)) -> Self {
         Self {
-            version,
+            version: version.into(),
             major: outbe_update::state::protocol_version_major(version),
             minor: outbe_update::state::protocol_version_minor(version),
             activation_height,

@@ -14,6 +14,7 @@ use crate::constants::VOTING_WINDOW_BLOCKS;
 use crate::errors::UpdateError;
 use crate::schema::Update;
 use crate::state::{ProposalInfo, ProposalStatus, VoteTally};
+use crate::ProtocolVersion;
 
 sol!(
     #![sol(alloy_sol_types = alloy_sol_types, extra_derives(Debug, PartialEq))]
@@ -32,7 +33,7 @@ pub fn get_proposal_return(proposal: &ProposalInfo) -> IUpdate::getProposalRetur
         proposedAtHeight: proposal.proposed_at_height,
         activationHeight: proposal.activation_height,
         votingDeadlineHeight: proposal.voting_deadline_height,
-        version: proposal.version,
+        version: proposal.version.into(),
         info: proposal.info.clone().into(),
         status: IUpdate::ProposalStatus::from(proposal.status),
         state: IUpdate::VoteTally {
@@ -58,7 +59,7 @@ pub fn dispatch(
                 let block_number = storage.block_number()?;
                 let proposal_id = update.create_proposal(
                     sender,
-                    c.version,
+                    ProtocolVersion::from(c.version),
                     c.activationHeight,
                     c.info.as_ref(),
                     block_number,
@@ -98,9 +99,11 @@ pub fn dispatch(
                 Ok(get_proposal_return(&proposal))
             }),
             getActiveVersion(_) => metadata::<IUpdate::getActiveVersionCall>(|| {
-                Ok(update.get_active_version()?.unwrap_or_default())
+                Ok(update.get_active_version()?.unwrap_or_default().into())
             }),
-            isVersionActive(c) => view(c, |c| is_version_active_eq(storage.clone(), c.version)),
+            isVersionActive(c) => view(c, |c| {
+                is_version_active_eq(storage.clone(), ProtocolVersion::from(c.version))
+            }),
             listPendingProposals(_) => {
                 metadata::<IUpdate::listPendingProposalsCall>(|| update.list_pending_proposal_ids())
             }

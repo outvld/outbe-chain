@@ -14,7 +14,7 @@ use crate::errors::UpdateError;
 use crate::handlers::UpgradeHandlerRegistry;
 use crate::precompile::IUpdate;
 use crate::schema::Update;
-use crate::state::{version_gt, ProposalStatus, VoteKind, VoteTally};
+use crate::state::{ProposalStatus, VoteKind, VoteTally};
 use crate::ProtocolVersion;
 
 /// Returns `Ok(())` when `caller` is a registered validator with `status == ACTIVE`.
@@ -64,7 +64,7 @@ impl Update<'_> {
         }
 
         if let Some(active) = self.get_active_version()? {
-            if !version_gt(version, active) {
+            if version <= active {
                 return Err(UpdateError::DowngradeNotAllowed.into());
             }
         }
@@ -215,7 +215,7 @@ impl Update<'_> {
                     proposalId: proposal_id,
                     state,
                     activationHeight: activation_height,
-                    version,
+                    version: version.raw(),
                 })
             }
         } else {
@@ -254,7 +254,7 @@ impl Update<'_> {
             self.set_active_version(proposal.version, proposal.activation_height)?;
             self.set_proposal_status(proposal_id, ProposalStatus::Activated)?;
             self.emit(IUpdate::UpgradeActivated {
-                version: proposal.version,
+                version: proposal.version.raw(),
                 activationHeight: proposal.activation_height,
             })
         })

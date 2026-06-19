@@ -2,7 +2,6 @@ use outbe_primitives::error::Result;
 use outbe_primitives::storage::StorageHandle;
 
 use crate::schema::Update;
-use crate::state::version_gte;
 use crate::ProtocolVersion;
 
 /// Returns the currently active protocol version, if any.
@@ -30,5 +29,5 @@ pub fn is_version_active_gte(storage: StorageHandle, version: ProtocolVersion) -
     let Some(active) = update.get_active_version()? else {
         return Ok(false);
     };
-    Ok(version_gte(active, version))
+    Ok(active >= version)
 }
