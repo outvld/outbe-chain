@@ -1,14 +1,19 @@
 use alloy_primitives::{address, Address};
 
 use outbe_primitives::addresses::UPDATE_ADDRESS;
+use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
 use outbe_primitives::storage::hashmap::HashMapStorageProvider;
 use outbe_primitives::storage::StorageHandle;
 use outbe_validatorset::contract::ValidatorSet;
 
 use crate::constants::{MIN_ACTIVATION_BUFFER, VOTING_WINDOW_BLOCKS};
+use crate::handlers::EMPTY_UPGRADE_HANDLER_REGISTRY;
+use crate::schema::Update;
 use crate::{encode_protocol_version, ProtocolVersion};
+use outbe_primitives::error::Result;
 
 mod events;
+mod handlers;
 mod lifecycle;
 mod precompile;
 mod proposals;
@@ -82,8 +87,27 @@ pub(super) fn has_event(provider: &HashMapStorageProvider, topic0: alloy_primiti
     event_count(provider, topic0) > 0
 }
 
+pub(super) fn block_ctx(storage: StorageHandle, block_number: u64) -> BlockRuntimeContext {
+    BlockRuntimeContext::new(
+        BlockContext::empty_for_tests(block_number, 0, 1),
+        storage,
+    )
+}
+
 pub(super) fn min_activation(current: u64) -> u64 {
     current
         .saturating_add(VOTING_WINDOW_BLOCKS)
         .saturating_add(MIN_ACTIVATION_BUFFER)
+}
+
+/// Test-only helper: runs begin-block processing with an empty handler registry.
+pub(super) trait UpdateTestExt {
+    fn process_begin_block_test(&mut self, block_number: u64) -> Result<()>;
+}
+
+impl UpdateTestExt for Update<'_> {
+    fn process_begin_block_test(&mut self, block_number: u64) -> Result<()> {
+        let ctx = block_ctx(self.storage.clone(), block_number);
+        self.process_begin_block_with_handlers(&ctx, &EMPTY_UPGRADE_HANDLER_REGISTRY)
+    }
 }

@@ -1,6 +1,7 @@
 use alloy_primitives::{Address, U256};
 
-use outbe_primitives::error::Result;
+use outbe_primitives::block::BlockRuntimeContext;
+use outbe_primitives::error::{PrecompileError, Result};
 use outbe_primitives::storage::StorageHandle;
 use outbe_validatorset::contract::ValidatorSet;
 use outbe_validatorset::logic::status;
@@ -10,6 +11,7 @@ use crate::constants::{
     VOTING_WINDOW_BLOCKS,
 };
 use crate::errors::UpdateError;
+use crate::handlers::UpgradeHandlerRegistry;
 use crate::precompile::IUpdate;
 use crate::schema::Update;
 use crate::state::{version_gt, ProposalStatus, VoteKind, VoteTally};
@@ -151,8 +153,13 @@ impl Update<'_> {
         self.set_proposal_status(proposal_id, ProposalStatus::Cancelled)
     }
 
-    /// Tally pending proposals and activate approved ones at the current block.
-    pub fn process_begin_block(&mut self, block_number: u64) -> Result<()> {
+    /// Tally pending proposals and activate approved ones using `registry`.
+    pub fn process_begin_block_with_handlers(
+        &mut self,
+        ctx: &BlockRuntimeContext,
+        registry: &UpgradeHandlerRegistry,
+    ) -> Result<()> {
+        let block_number = ctx.block.block_number;
         let pending_ids = self.list_pending_proposal_ids()?;
         for proposal_id in pending_ids {
             let Some(proposal) = self.read_proposal(proposal_id)? else {
@@ -173,7 +180,7 @@ impl Update<'_> {
             if proposal.status == ProposalStatus::Approved
                 && block_number >= proposal.activation_height
             {
-                self.activate_proposal(proposal_id)?;
+                self.activate_proposal(ctx, registry, proposal_id)?;
             }
         }
         Ok(())
@@ -220,7 +227,12 @@ impl Update<'_> {
         }
     }
 
-    fn activate_proposal(&mut self, proposal_id: U256) -> Result<()> {
+    fn activate_proposal(
+        &mut self,
+        ctx: &BlockRuntimeContext,
+        registry: &UpgradeHandlerRegistry,
+        proposal_id: U256,
+    ) -> Result<()> {
         let proposal = self
             .read_proposal(proposal_id)?
             .ok_or(UpdateError::ProposalNotFound)?;
@@ -228,11 +240,23 @@ impl Update<'_> {
             return Ok(());
         }
 
-        self.set_active_version(proposal.version, proposal.activation_height)?;
-        self.set_proposal_status(proposal_id, ProposalStatus::Activated)?;
-        self.emit(IUpdate::UpgradeActivated {
-            version: proposal.version,
-            activationHeight: proposal.activation_height,
+        ctx.with_checkpoint(|| {
+            if let Some(spec) = registry.lookup(proposal.version) {
+                (spec.handler)(ctx, &proposal).map_err(|err| match err {
+                    PrecompileError::Fatal(message) => PrecompileError::Fatal(message),
+                    other => PrecompileError::Fatal(format!(
+                        "upgrade handler '{}' failed: {other}",
+                        spec.label
+                    )),
+                })?;
+            }
+
+            self.set_active_version(proposal.version, proposal.activation_height)?;
+            self.set_proposal_status(proposal_id, ProposalStatus::Activated)?;
+            self.emit(IUpdate::UpgradeActivated {
+                version: proposal.version,
+                activationHeight: proposal.activation_height,
+            })
         })
     }
 

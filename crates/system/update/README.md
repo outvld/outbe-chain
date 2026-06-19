@@ -49,5 +49,14 @@ Unset storage slots default to version `0`, which is the initial version - befor
 
 Write-call events (`ProposalCreated`, `VoteCast`, `ProposalCancelled`) are emitted from the Update precompile via normal `storage.emit_event` and appear in the caller's transaction receipt (`eth_getTransactionReceipt` / `eth_getLogs`).
 
-Lifecycle events (`ProposalApproved`, `ProposalRejected`, `ProposalExpired`, `UpgradeActivated`) are emitted from `process_begin_block` when tally or activation runs. They use the same storage event API but run under the direct pre-execution hook path, so they are **not** promised as EVM transaction receipt logs under current wiring. No synthetic/system receipts are used for Update domain events. Later, we may implement synthetic receipts for these events.
+Lifecycle events (`ProposalApproved`, `ProposalRejected`, `ProposalExpired`, `UpgradeActivated`) are emitted from begin-block activation processing when tally or activation runs. They use the same storage event API but run under the direct pre-execution hook path, so they are **not** promised as EVM transaction receipt logs under current wiring. No synthetic/system receipts are used for Update domain events. Later, we may implement synthetic receipts for these events.
 
+## Upgrade Handlers
+
+Activation can run optional deterministic storage migrations before the active protocol version is switched.
+
+- Handler signature: `fn(&BlockRuntimeContext, &ProposalInfo) -> Result<()>`.
+- Handler runs inside an activation checkpoint **before** `active_version`, proposal status, and `UpgradeActivated` are written.
+- The concrete compile-time handler table lives in `crates/blockchain/evm/src/upgrade_handlers.rs` as `ACTIVE_UPGRADE_HANDLERS`.
+- Handler implementations should live in their owning crates; `outbe-evm` only wires them into the registry.
+- Handler failure is fatal to block execution (`PrecompileError::Fatal`).

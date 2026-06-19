@@ -5,8 +5,8 @@ use crate::precompile::{dispatch, IUpdate};
 use crate::schema::Update;
 
 use super::{
-    event_count, has_event, min_activation, with_update_provider, PROPOSER, V1_2, V1_3, VOTER_A,
-    VOTER_B,
+    event_count, has_event, min_activation, with_update_provider, UpdateTestExt, PROPOSER, V1_2,
+    V1_3, VOTER_A, VOTER_B,
 };
 
 #[test]
@@ -68,8 +68,12 @@ fn lifecycle_emits_approved_and_upgrade_activated_events() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
-        update.process_begin_block(activation).unwrap();
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
+        update
+            .process_begin_block_test(activation)
+            .unwrap();
     });
 
     assert!(has_event(
@@ -99,7 +103,9 @@ fn lifecycle_emits_expired_event_without_quorum() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
     });
 
     assert!(has_event(
@@ -135,7 +141,9 @@ fn lifecycle_emits_rejected_event_on_activation_conflict() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
     });
 
     assert!(has_event(

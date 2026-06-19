@@ -3,7 +3,7 @@ use crate::schema::Update;
 use crate::state::ProposalStatus;
 
 use super::{
-    min_activation, with_update, PROPOSER, V1_2, V1_3, VOTER_A, VOTER_B,
+    min_activation, with_update, UpdateTestExt, PROPOSER, V1_2, V1_3, VOTER_A, VOTER_B,
 };
 
 #[test]
@@ -37,7 +37,7 @@ fn lifecycle_approves_with_quorum() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Approved);
@@ -66,7 +66,7 @@ fn lifecycle_expires_without_quorum() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Expired);
@@ -95,8 +95,8 @@ fn lifecycle_activates_approved_proposal() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
-        update.process_begin_block(activation).unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
+        update.process_begin_block_test(activation).unwrap();
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Activated);
@@ -130,7 +130,7 @@ fn approved_proposal_is_excluded_from_pending_index() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
 
         assert!(update.list_pending_proposal_ids().unwrap().is_empty());
         assert_eq!(
@@ -167,7 +167,7 @@ fn lifecycle_rejects_conflicting_activation_height() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
 
         assert_eq!(
             update.read_proposal(first).unwrap().unwrap().status,

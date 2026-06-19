@@ -18,13 +18,15 @@ use outbe_primitives::storage::StorageHandle;
 use outbe_validatorset::contract::ValidatorSet;
 
 use crate::api::{get_active_version, version_at_height};
+use crate::handlers::{UpgradeHandlerRegistry, UpgradeHandlerSpec};
 use crate::precompile::{dispatch, IUpdate};
 use crate::schema::Update;
 use crate::state::{protocol_version_major, protocol_version_minor, ProposalStatus, VoteKind};
 use crate::{encode_protocol_version, ProtocolVersion};
 
 use super::{
-    event_count, has_event, min_activation, PROPOSER, V1_2, V1_3, VALIDATOR_OWNER, VOTER_A, VOTER_B,
+    block_ctx, event_count, has_event, min_activation, with_update, UpdateTestExt, PROPOSER, V1_2,
+    V1_3, VALIDATOR_OWNER, VOTER_A, VOTER_B,
 };
 
 const VOTER_C: Address = address!("0x5555555555555555555555555555555555555555");
@@ -228,7 +230,9 @@ fn lifecycle_tally_approves_with_three_of_four_yes() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Approved);
@@ -255,7 +259,9 @@ fn lifecycle_tally_expires_with_two_of_four_yes() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Expired);
@@ -280,8 +286,12 @@ fn lifecycle_pending_to_approved_to_activated() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
-        update.process_begin_block(activation).unwrap();
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
+        update
+            .process_begin_block_test(activation)
+            .unwrap();
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Activated);
@@ -307,9 +317,15 @@ fn lifecycle_activation_is_idempotent_or_replay_safe() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
-        update.process_begin_block(activation).unwrap();
-        update.process_begin_block(activation).unwrap();
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
+        update
+            .process_begin_block_test(activation)
+            .unwrap();
+        update
+            .process_begin_block_test(activation)
+            .unwrap();
     });
 
     let activated_events = event_count(&provider, IUpdate::UpgradeActivated::SIGNATURE_HASH);
@@ -339,7 +355,9 @@ fn lifecycle_conflicting_proposals_same_activation_height() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
 
         assert_eq!(
             update.read_proposal(first).unwrap().unwrap().status,
@@ -353,13 +371,48 @@ fn lifecycle_conflicting_proposals_same_activation_height() {
 }
 
 #[test]
-#[should_panic(expected = "SPEC_EXPECTED_FAIL: migration handler registry is not implemented")]
 fn lifecycle_handler_error_is_fatal() {
-    let migration_handler_registry_available = false;
-    assert!(
-        migration_handler_registry_available,
-        "SPEC_EXPECTED_FAIL: migration handler registry is not implemented"
-    );
+    with_update(|storage| {
+        let mut update = Update::new(storage.clone());
+        let current = 100u64;
+        let activation = min_activation(current);
+        let proposal_id = update
+            .create_proposal(PROPOSER, V1_2, activation, b"", current)
+            .unwrap();
+        update
+            .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
+            .unwrap();
+        update
+            .cast_vote_approve(proposal_id, VOTER_B, true, current + 2)
+            .unwrap();
+
+        let deadline = update
+            .read_proposal(proposal_id)
+            .unwrap()
+            .unwrap()
+            .voting_deadline_height;
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
+
+        let ctx = block_ctx(storage.clone(), activation);
+        let registry = UpgradeHandlerRegistry::new(&[UpgradeHandlerSpec {
+            version: Some(V1_2),
+            label: "failing_handler",
+            handler: |_, _| Err(PrecompileError::Fatal("handler failed".into())),
+        }]);
+        let err = update
+            .process_begin_block_with_handlers(&ctx, &registry)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            PrecompileError::Fatal(message) if message.contains("handler failed")
+        ));
+        assert_eq!(
+            update.read_proposal(proposal_id).unwrap().unwrap().status,
+            ProposalStatus::Approved
+        );
+    });
 }
 
 // ---- ABI / event surface specs ----------------------------------------------
@@ -465,8 +518,12 @@ fn events_lifecycle_emit_receipt_visible_logs() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update.process_begin_block(deadline + 1).unwrap();
-        update.process_begin_block(activation).unwrap();
+        update
+            .process_begin_block_test(deadline + 1)
+            .unwrap();
+        update
+            .process_begin_block_test(activation)
+            .unwrap();
     });
 
     let approved_event_exists = has_event(&provider, IUpdate::ProposalApproved::SIGNATURE_HASH);

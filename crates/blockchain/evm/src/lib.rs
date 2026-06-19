@@ -8,6 +8,7 @@ pub mod failure_receipt;
 pub mod gas;
 pub mod precompiles;
 pub mod storage;
+pub mod upgrade_handlers;
 pub mod sub_call;
 /// Re-export of the validator EVM signer, which now lives in
 /// `outbe-primitives::signer`. Wire/data-only type (no EVM runtime), so it
