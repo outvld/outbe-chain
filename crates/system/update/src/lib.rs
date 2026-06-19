@@ -5,7 +5,6 @@
 //! Stage 3: active-validator authorization and begin-block tally/activation.
 
 pub mod api;
-pub mod auth;
 pub mod constants;
 pub mod errors;
 pub mod lifecycle;
