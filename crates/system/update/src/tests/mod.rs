@@ -88,10 +88,7 @@ pub(super) fn has_event(provider: &HashMapStorageProvider, topic0: alloy_primiti
 }
 
 pub(super) fn block_ctx(storage: StorageHandle, block_number: u64) -> BlockRuntimeContext {
-    BlockRuntimeContext::new(
-        BlockContext::empty_for_tests(block_number, 0, 1),
-        storage,
-    )
+    BlockRuntimeContext::new(BlockContext::empty_for_tests(block_number, 0, 1), storage)
 }
 
 pub(super) fn min_activation(current: u64) -> u64 {

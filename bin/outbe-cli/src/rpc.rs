@@ -307,10 +307,7 @@ impl Rpc for RpcClient {
 
     async fn outbe_get_update_proposal(&self, proposal_id: U256) -> Result<Option<Value>> {
         let result = self
-            .call_rpc(
-                "outbe_getUpdateProposal",
-                serde_json::json!([proposal_id]),
-            )
+            .call_rpc("outbe_getUpdateProposal", serde_json::json!([proposal_id]))
             .await?;
         if result.is_null() {
             Ok(None)

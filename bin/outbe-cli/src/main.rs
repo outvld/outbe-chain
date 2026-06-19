@@ -247,14 +247,8 @@ mod tests {
 
     #[test]
     fn test_cli_parse_update_vote_yes() {
-        let cli = Cli::try_parse_from([
-            "outbe-cli",
-            "update",
-            "vote",
-            "--proposal-id",
-            "1",
-            "--yes",
-        ]);
+        let cli =
+            Cli::try_parse_from(["outbe-cli", "update", "vote", "--proposal-id", "1", "--yes"]);
         assert!(cli.is_ok());
     }
 

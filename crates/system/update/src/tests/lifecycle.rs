@@ -2,9 +2,7 @@ use crate::api::{get_active_version, version_at_height};
 use crate::schema::Update;
 use crate::state::ProposalStatus;
 
-use super::{
-    min_activation, with_update, UpdateTestExt, PROPOSER, V1_2, V1_3, VOTER_A, VOTER_B,
-};
+use super::{min_activation, with_update, UpdateTestExt, PROPOSER, V1_2, V1_3, VOTER_A, VOTER_B};
 
 #[test]
 fn quorum_requires_two_thirds() {

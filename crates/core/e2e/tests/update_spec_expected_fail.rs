@@ -285,8 +285,9 @@ fn e2e_lifecycle_events_visible_in_transaction_receipts() {
 
 #[test]
 fn startup_binary_version_check_rejects_older_binary() {
-    let err = outbe_update::startup::assert_binary_protocol_compatible(encode_protocol_version(2, 0))
-        .unwrap_err();
+    let err =
+        outbe_update::startup::assert_binary_protocol_compatible(encode_protocol_version(2, 0))
+            .unwrap_err();
     assert!(err.contains("older than on-chain active"));
 }
 

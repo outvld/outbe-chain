@@ -68,12 +68,8 @@ fn lifecycle_emits_approved_and_upgrade_activated_events() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
-        update
-            .process_begin_block_test(activation)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
+        update.process_begin_block_test(activation).unwrap();
     });
 
     assert!(has_event(
@@ -103,9 +99,7 @@ fn lifecycle_emits_expired_event_without_quorum() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
     });
 
     assert!(has_event(
@@ -141,9 +135,7 @@ fn lifecycle_emits_rejected_event_on_activation_conflict() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
     });
 
     assert!(has_event(

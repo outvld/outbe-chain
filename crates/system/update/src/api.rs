@@ -1,9 +1,9 @@
 use outbe_primitives::error::Result;
 use outbe_primitives::storage::StorageHandle;
 
-use crate::ProtocolVersion;
 use crate::schema::Update;
 use crate::state::version_gte;
+use crate::ProtocolVersion;
 
 /// Returns the currently active protocol version, if any.
 pub fn get_active_version(storage: StorageHandle) -> Result<Option<ProtocolVersion>> {

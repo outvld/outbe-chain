@@ -6,13 +6,11 @@ use clap::Subcommand;
 use eyre::{Result, WrapErr};
 use outbe_update::constants::PROTOCOL_VERSION;
 use outbe_update::state::version_gt;
+use outbe_update::version::{format_protocol_version, try_parse_protocol_version};
 use serde_json::Value;
 
 use crate::abi::{IUpdate, UPDATE_ADDRESS};
 use crate::rpc::Rpc;
-
-const PROTOCOL_VERSION_MINOR_BITS: u32 = 24;
-const MAX_PROTOCOL_VERSION_MINOR: u32 = (1u32 << PROTOCOL_VERSION_MINOR_BITS) - 1;
 
 #[derive(Subcommand)]
 pub enum UpdateCmd {
@@ -82,28 +80,9 @@ impl UpdateCmd {
     }
 }
 
-fn encode_protocol_version(major: u8, minor: u32) -> u32 {
-    ((major as u32) << PROTOCOL_VERSION_MINOR_BITS) | minor
-}
-
 fn parse_protocol_version(input: &str) -> Result<u32> {
-    if let Some((major, minor)) = input.split_once('.') {
-        let major = major
-            .parse::<u8>()
-            .wrap_err_with(|| format!("invalid major version in '{input}'"))?;
-        let minor = minor
-            .parse::<u32>()
-            .wrap_err_with(|| format!("invalid minor version in '{input}'"))?;
-        if minor > MAX_PROTOCOL_VERSION_MINOR {
-            eyre::bail!("minor version exceeds max {MAX_PROTOCOL_VERSION_MINOR}");
-        }
-        return Ok(encode_protocol_version(major, minor));
-    }
-
-    let raw = input.parse::<u32>().wrap_err_with(|| {
-        format!("invalid protocol version '{input}', expected major.minor or u32")
-    })?;
-    Ok(raw)
+    try_parse_protocol_version(input)
+        .map_err(|err| eyre::eyre!("invalid protocol version '{input}': {err}"))
 }
 
 fn resolve_proposal_version(version: Option<String>) -> Result<u32> {
@@ -121,12 +100,6 @@ fn parse_info_bytes(info: Option<String>) -> Result<Vec<u8>> {
         return hex::decode(hex_str).wrap_err("invalid --info hex");
     }
     Ok(info.into_bytes())
-}
-
-fn format_protocol_version(version: u32) -> String {
-    let major = (version >> PROTOCOL_VERSION_MINOR_BITS) as u8;
-    let minor = version & MAX_PROTOCOL_VERSION_MINOR;
-    format!("v{major}.{minor} ({version})")
 }
 
 fn active_version_from_rpc(active: &Value) -> u32 {
@@ -229,9 +202,7 @@ async fn vote(
     let tx_hash = signer
         .send_tx(client, UPDATE_ADDRESS, call.abi_encode(), U256::ZERO)
         .await?;
-    println!(
-        "Vote transaction sent: {tx_hash} (proposal {proposal_id}, approve={approve})"
-    );
+    println!("Vote transaction sent: {tx_hash} (proposal {proposal_id}, approve={approve})");
     Ok(())
 }
 
@@ -300,6 +271,7 @@ fn print_proposal(label: &str, proposal: &Value) {
 mod tests {
     use super::*;
     use crate::rpc::mock::{recording_send_tx_rpc, MockRpc};
+    use outbe_update::encode_protocol_version;
 
     #[test]
     fn parse_protocol_version_major_minor() {
@@ -321,26 +293,25 @@ mod tests {
 
     #[test]
     fn propose_version_must_be_greater_than_active() {
-        let err = ensure_propose_version_compatible(PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_VERSION)
-            .unwrap_err();
+        let err =
+            ensure_propose_version_compatible(PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_VERSION)
+                .unwrap_err();
         assert!(err.to_string().contains("must be greater than active"));
     }
 
     #[test]
     fn propose_version_must_not_exceed_binary() {
-        let err = ensure_propose_version_compatible(
-            encode_protocol_version(9, 0),
-            0,
-            PROTOCOL_VERSION,
-        )
-        .unwrap_err();
+        let err =
+            ensure_propose_version_compatible(encode_protocol_version(9, 0), 0, PROTOCOL_VERSION)
+                .unwrap_err();
         assert!(err.to_string().contains("exceeds binary protocol version"));
     }
 
     #[test]
     fn approve_version_must_not_exceed_binary() {
-        let err = ensure_approve_version_compatible(encode_protocol_version(9, 0), PROTOCOL_VERSION)
-            .unwrap_err();
+        let err =
+            ensure_approve_version_compatible(encode_protocol_version(9, 0), PROTOCOL_VERSION)
+                .unwrap_err();
         assert!(err.to_string().contains("exceeds binary protocol version"));
     }
 
@@ -421,7 +392,10 @@ mod tests {
             info: None,
             force: false,
         }
-        .run(&mock, Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"))
+        .run(
+            &mock,
+            Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"),
+        )
         .await
         .unwrap_err();
         assert!(err.to_string().contains("must be greater than active"));
@@ -444,7 +418,10 @@ mod tests {
             no: false,
             force: false,
         }
-        .run(&mock, Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"))
+        .run(
+            &mock,
+            Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"),
+        )
         .await
         .unwrap_err();
         assert!(err.to_string().contains("exceeds binary protocol version"));

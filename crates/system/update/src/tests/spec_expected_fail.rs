@@ -230,9 +230,7 @@ fn lifecycle_tally_approves_with_three_of_four_yes() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Approved);
@@ -259,9 +257,7 @@ fn lifecycle_tally_expires_with_two_of_four_yes() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Expired);
@@ -286,12 +282,8 @@ fn lifecycle_pending_to_approved_to_activated() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
-        update
-            .process_begin_block_test(activation)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
+        update.process_begin_block_test(activation).unwrap();
 
         let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
         assert_eq!(proposal.status, ProposalStatus::Activated);
@@ -317,15 +309,9 @@ fn lifecycle_activation_is_idempotent_or_replay_safe() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
-        update
-            .process_begin_block_test(activation)
-            .unwrap();
-        update
-            .process_begin_block_test(activation)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
+        update.process_begin_block_test(activation).unwrap();
+        update.process_begin_block_test(activation).unwrap();
     });
 
     let activated_events = event_count(&provider, IUpdate::UpgradeActivated::SIGNATURE_HASH);
@@ -355,9 +341,7 @@ fn lifecycle_conflicting_proposals_same_activation_height() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
 
         assert_eq!(
             update.read_proposal(first).unwrap().unwrap().status,
@@ -391,9 +375,7 @@ fn lifecycle_handler_error_is_fatal() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         let registry = UpgradeHandlerRegistry::new(&[UpgradeHandlerSpec {
@@ -518,12 +500,8 @@ fn events_lifecycle_emit_receipt_visible_logs() {
             .unwrap()
             .unwrap()
             .voting_deadline_height;
-        update
-            .process_begin_block_test(deadline + 1)
-            .unwrap();
-        update
-            .process_begin_block_test(activation)
-            .unwrap();
+        update.process_begin_block_test(deadline + 1).unwrap();
+        update.process_begin_block_test(activation).unwrap();
     });
 
     let approved_event_exists = has_event(&provider, IUpdate::ProposalApproved::SIGNATURE_HASH);

@@ -3,7 +3,6 @@ use alloy_primitives::{keccak256, Address, B256, U256};
 use outbe_primitives::error::Result;
 use tracing::warn;
 
-use crate::constants::{MAX_PROTOCOL_VERSION_MINOR, PROTOCOL_VERSION_MINOR_BITS};
 use crate::errors::UpdateError;
 use crate::schema::{ProposalRecord, Update, VoteRecord};
 use crate::ProtocolVersion;
@@ -131,13 +130,13 @@ pub fn vote_key(proposal_id: U256, voter: Address) -> B256 {
 }
 
 /// Returns the major part of an encoded protocol version.
-pub fn protocol_version_major(version: ProtocolVersion) -> u8 {
-    (version >> PROTOCOL_VERSION_MINOR_BITS) as u8
+pub const fn protocol_version_major(version: ProtocolVersion) -> u8 {
+    crate::version::protocol_version_major(version)
 }
 
 /// Returns the minor part of an encoded protocol version.
-pub fn protocol_version_minor(version: ProtocolVersion) -> u32 {
-    version & MAX_PROTOCOL_VERSION_MINOR
+pub const fn protocol_version_minor(version: ProtocolVersion) -> u32 {
+    crate::version::protocol_version_minor(version)
 }
 
 /// Compares two protocol versions. Returns `true` if `left > right`.

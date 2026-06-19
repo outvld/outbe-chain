@@ -6,9 +6,7 @@ use outbe_primitives::error::PrecompileError;
 use crate::precompile::{dispatch, IUpdate};
 use crate::schema::Update;
 
-use super::{
-    min_activation, with_update, PROPOSER, V1_0, V1_2, V2_0, V3_0, V3_1, VOTER_A,
-};
+use super::{min_activation, with_update, PROPOSER, V1_0, V1_2, V2_0, V3_0, V3_1, VOTER_A};
 
 #[test]
 fn precompile_abi_compiles() {

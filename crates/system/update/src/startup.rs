@@ -2,7 +2,8 @@
 
 use crate::constants::PROTOCOL_VERSION;
 use crate::handlers::UpgradeHandlerRegistry;
-use crate::state::{protocol_version_major, protocol_version_minor, version_gt, ProposalInfo};
+use crate::state::{version_gt, ProposalInfo};
+use crate::version::format_protocol_version;
 use crate::ProtocolVersion;
 
 /// Returns `Ok(())` when `binary_version` is new enough for `active_version`.
@@ -31,15 +32,6 @@ pub fn warn_missing_handlers_for_waiting_proposals(
             );
         }
     }
-}
-
-/// Formats a protocol version as `v{major}.{minor}`.
-fn format_protocol_version(version: ProtocolVersion) -> String {
-    format!(
-        "v{}.{}",
-        protocol_version_major(version),
-        protocol_version_minor(version)
-    )
 }
 
 fn format_binary_mismatch(binary: ProtocolVersion, active: ProtocolVersion) -> String {

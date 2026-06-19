@@ -1,12 +1,12 @@
 use alloy_primitives::U256;
 
 use crate::constants::MAX_PROTOCOL_VERSION_MINOR;
+use crate::encode_protocol_version;
 use crate::precompile::IUpdate;
 use crate::schema::{ProposalRecord, Update, VoteRecord};
 use crate::state::{
     protocol_version_major, protocol_version_minor, vote_key, ProposalStatus, VoteKind,
 };
-use crate::encode_protocol_version;
 
 use super::{with_update, PROPOSER, V9_8, VOTER_A};
 
