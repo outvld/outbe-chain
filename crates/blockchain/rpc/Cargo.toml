@@ -16,6 +16,7 @@ outbe-validatorset.workspace = true
 outbe-staking.workspace = true
 outbe-rewards.workspace = true
 outbe-slashindicator.workspace = true
+outbe-update.workspace = true
 
 # Reth
 reth-ethereum = { workspace = true, features = ["storage-api"] }

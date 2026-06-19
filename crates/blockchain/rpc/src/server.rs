@@ -24,7 +24,8 @@ use std::sync::Arc;
 use crate::api::{
     ConsensusStatusInfo, EmissionInfo, EpochInfo, FinalizationProof, OutbeApiServer,
     ParticipationInfo, Phase1VerificationMode, SlashConfig, SlashInfo, SyncStatusInfo,
-    ValidatorDetailInfo, ValidatorInfo,
+    UpdateActiveVersionInfo, UpdateProposalInfo, UpdateVoteInfo, ValidatorDetailInfo,
+    ValidatorInfo,
 };
 
 /// Bridge from Reth's `StateProvider` to outbe's `StorageReader` trait.
@@ -330,6 +331,64 @@ where
         Ok(FinalizationProof {
             finalization_hex: format!("0x{}", hex::encode(&proof.finalization)),
             block_hex: format!("0x{}", hex::encode(&proof.block)),
+        })
+    }
+    async fn get_update_active_version(&self) -> RpcResult<UpdateActiveVersionInfo> {
+        self.with_latest_state(|storage| {
+            let update = outbe_update::schema::Update::new(storage);
+            let version = update.get_active_version()?.unwrap_or_default();
+            Ok((version, update.get_active_version_height()?).into())
+        })
+    }
+
+    async fn get_update_proposal(
+        &self,
+        proposal_id: U256,
+    ) -> RpcResult<Option<UpdateProposalInfo>> {
+        self.with_latest_state(|storage| {
+            let update = outbe_update::schema::Update::new(storage);
+            Ok(update
+                .read_proposal(proposal_id)?
+                .map(UpdateProposalInfo::from))
+        })
+    }
+
+    async fn list_update_pending_proposals(&self) -> RpcResult<Vec<UpdateProposalInfo>> {
+        self.with_latest_state(|storage| {
+            let update = outbe_update::schema::Update::new(storage);
+            let mut proposals = Vec::new();
+            for proposal_id in update.list_pending_proposal_ids()? {
+                if let Some(proposal) = update.read_proposal(proposal_id)? {
+                    proposals.push(proposal.into());
+                }
+            }
+            Ok(proposals)
+        })
+    }
+
+    async fn list_update_waiting_proposals(&self) -> RpcResult<Vec<UpdateProposalInfo>> {
+        self.with_latest_state(|storage| {
+            let update = outbe_update::schema::Update::new(storage);
+            let mut proposals = Vec::new();
+            for proposal_id in update.list_waiting_for_activation_proposal_ids()? {
+                if let Some(proposal) = update.read_proposal(proposal_id)? {
+                    proposals.push(proposal.into());
+                }
+            }
+            Ok(proposals)
+        })
+    }
+
+    async fn get_update_vote(
+        &self,
+        proposal_id: U256,
+        voter: Address,
+    ) -> RpcResult<Option<UpdateVoteInfo>> {
+        self.with_latest_state(|storage| {
+            let update = outbe_update::schema::Update::new(storage);
+            Ok(update
+                .read_vote(proposal_id, voter)?
+                .map(UpdateVoteInfo::from))
         })
     }
 }

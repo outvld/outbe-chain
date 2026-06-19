@@ -22,6 +22,7 @@ outbe-primitives.workspace = true
 outbe-validatorset.workspace = true
 outbe-teeregistry.workspace = true
 outbe-tee.workspace = true
+outbe-update.workspace = true
 
 # Commonware
 commonware-actor.workspace = true

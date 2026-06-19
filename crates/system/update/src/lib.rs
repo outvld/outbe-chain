@@ -12,6 +12,7 @@ pub mod lifecycle;
 pub mod precompile;
 pub mod runtime;
 pub mod schema;
+pub mod startup;
 pub mod state;
 
 /// On-chain protocol version: `u8 major + u24 minor` encoded as `u32`.

@@ -44,6 +44,19 @@ pub trait Rpc {
     fn outbe_get_vrf_seed(&self) -> impl std::future::Future<Output = Result<Value>> + Send;
     fn outbe_get_emission_info(&self) -> impl std::future::Future<Output = Result<Value>> + Send;
     fn outbe_get_slash_config(&self) -> impl std::future::Future<Output = Result<Value>> + Send;
+    fn outbe_get_update_active_version(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Value>> + Send;
+    fn outbe_get_update_proposal(
+        &self,
+        proposal_id: U256,
+    ) -> impl std::future::Future<Output = Result<Option<Value>>> + Send;
+    fn outbe_list_update_pending_proposals(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Value>> + Send;
+    fn outbe_list_update_waiting_proposals(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Value>> + Send;
     fn eth_get_logs(
         &self,
         address: Address,
@@ -287,6 +300,35 @@ impl Rpc for RpcClient {
             .await
     }
 
+    async fn outbe_get_update_active_version(&self) -> Result<Value> {
+        self.call_rpc("outbe_getUpdateActiveVersion", serde_json::json!([]))
+            .await
+    }
+
+    async fn outbe_get_update_proposal(&self, proposal_id: U256) -> Result<Option<Value>> {
+        let result = self
+            .call_rpc(
+                "outbe_getUpdateProposal",
+                serde_json::json!([proposal_id]),
+            )
+            .await?;
+        if result.is_null() {
+            Ok(None)
+        } else {
+            Ok(Some(result))
+        }
+    }
+
+    async fn outbe_list_update_pending_proposals(&self) -> Result<Value> {
+        self.call_rpc("outbe_listUpdatePendingProposals", serde_json::json!([]))
+            .await
+    }
+
+    async fn outbe_list_update_waiting_proposals(&self) -> Result<Value> {
+        self.call_rpc("outbe_listUpdateWaitingProposals", serde_json::json!([]))
+            .await
+    }
+
     async fn eth_get_logs(
         &self,
         address: Address,
@@ -399,6 +441,10 @@ pub mod mock {
         pub vrf_seed: Result<Value>,
         pub emission_info: Result<Value>,
         pub slash_config: Result<Value>,
+        pub update_active_version: Result<Value>,
+        pub update_proposal: Result<Option<Value>>,
+        pub update_pending_proposals: Result<Value>,
+        pub update_waiting_proposals: Result<Value>,
         pub logs: Result<Vec<Value>>,
     }
 
@@ -421,6 +467,10 @@ pub mod mock {
                 vrf_seed: Err(eyre::eyre!("not mocked")),
                 emission_info: Err(eyre::eyre!("not mocked")),
                 slash_config: Err(eyre::eyre!("not mocked")),
+                update_active_version: Err(eyre::eyre!("not mocked")),
+                update_proposal: Err(eyre::eyre!("not mocked")),
+                update_pending_proposals: Err(eyre::eyre!("not mocked")),
+                update_waiting_proposals: Err(eyre::eyre!("not mocked")),
                 logs: Err(eyre::eyre!("not mocked")),
             }
         }
@@ -489,6 +539,18 @@ pub mod mock {
         }
         async fn outbe_get_slash_config(&self) -> Result<Value> {
             clone_result(&self.slash_config)
+        }
+        async fn outbe_get_update_active_version(&self) -> Result<Value> {
+            clone_result(&self.update_active_version)
+        }
+        async fn outbe_get_update_proposal(&self, _proposal_id: U256) -> Result<Option<Value>> {
+            clone_result(&self.update_proposal)
+        }
+        async fn outbe_list_update_pending_proposals(&self) -> Result<Value> {
+            clone_result(&self.update_pending_proposals)
+        }
+        async fn outbe_list_update_waiting_proposals(&self) -> Result<Value> {
+            clone_result(&self.update_waiting_proposals)
         }
         async fn eth_get_logs(
             &self,
@@ -589,6 +651,32 @@ pub mod mock {
         async fn outbe_get_slash_config(&self) -> Result<Value> {
             self.next_response(RecordedRpcCall::OutbeGetSlashConfig)?
                 .into_value("outbe_getSlashConfig")
+        }
+
+        async fn outbe_get_update_active_version(&self) -> Result<Value> {
+            self.next_response(RecordedRpcCall::OutbeGetUpdateActiveVersion)?
+                .into_value("outbe_getUpdateActiveVersion")
+        }
+
+        async fn outbe_get_update_proposal(&self, proposal_id: U256) -> Result<Option<Value>> {
+            let value = self
+                .next_response(RecordedRpcCall::OutbeGetUpdateProposal { proposal_id })?
+                .into_value("outbe_getUpdateProposal")?;
+            if value.is_null() {
+                Ok(None)
+            } else {
+                Ok(Some(value))
+            }
+        }
+
+        async fn outbe_list_update_pending_proposals(&self) -> Result<Value> {
+            self.next_response(RecordedRpcCall::OutbeListUpdatePendingProposals)?
+                .into_value("outbe_listUpdatePendingProposals")
+        }
+
+        async fn outbe_list_update_waiting_proposals(&self) -> Result<Value> {
+            self.next_response(RecordedRpcCall::OutbeListUpdateWaitingProposals)?
+                .into_value("outbe_listUpdateWaitingProposals")
         }
 
         async fn eth_get_logs(

@@ -284,34 +284,20 @@ fn e2e_lifecycle_events_visible_in_transaction_receipts() {
 // ---- operator / RPC / localnet gaps -----------------------------------------
 
 #[test]
-#[should_panic(expected = "SPEC_EXPECTED_FAIL: outbe_getUpdateProposal RPC not implemented")]
-fn e2e_rpc_proposal_status_tracks_each_phase() {
-    let rpc_status_tracks_each_phase = false;
-    assert!(
-        rpc_status_tracks_each_phase,
-        "SPEC_EXPECTED_FAIL: outbe_getUpdateProposal RPC not implemented"
-    );
+fn startup_binary_version_check_rejects_older_binary() {
+    let err = outbe_update::startup::assert_binary_protocol_compatible(encode_protocol_version(2, 0))
+        .unwrap_err();
+    assert!(err.contains("older than on-chain active"));
 }
 
 #[test]
-#[should_panic(expected = "SPEC_EXPECTED_FAIL: outbe_getActiveVersion RPC not implemented")]
-fn e2e_rpc_active_version_after_activation() {
-    let active_version_rpc_available = false;
-    assert!(
-        active_version_rpc_available,
-        "SPEC_EXPECTED_FAIL: outbe_getActiveVersion RPC not implemented"
-    );
+fn startup_binary_version_check_allows_pre_governance_chain() {
+    outbe_update::startup::assert_binary_protocol_compatible(0).unwrap();
 }
 
-#[test]
-#[should_panic(expected = "SPEC_EXPECTED_FAIL: outbe-cli update commands not implemented")]
-fn e2e_cli_propose_vote_status_flow() {
-    let cli_update_commands_available = false;
-    assert!(
-        cli_update_commands_available,
-        "SPEC_EXPECTED_FAIL: outbe-cli update commands not implemented"
-    );
-}
+// RPC read methods (`outbe_getUpdateActiveVersion`, `outbe_getUpdateProposal`, etc.)
+// and CLI commands (`outbe-cli update propose|vote|status`) are implemented in
+// `outbe-rpc` and `outbe-cli`. Full operator-flow e2e remains deferred to localnet.
 
 #[test]
 #[should_panic(expected = "SPEC_EXPECTED_FAIL: localnet update smoke not implemented")]
@@ -332,17 +318,5 @@ fn e2e_deterministic_state_root_across_nodes() {
     assert!(
         multi_node_determinism_harness_available,
         "SPEC_EXPECTED_FAIL: multi-node determinism harness for update flow not implemented"
-    );
-}
-
-#[test]
-#[should_panic(
-    expected = "SPEC_EXPECTED_FAIL: startup binary-version fail-fast check not implemented"
-)]
-fn e2e_startup_binary_older_than_active_version_fails() {
-    let startup_binary_version_check_available = false;
-    assert!(
-        startup_binary_version_check_available,
-        "SPEC_EXPECTED_FAIL: startup binary-version fail-fast check not implemented"
     );
 }

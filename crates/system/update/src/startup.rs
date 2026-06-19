@@ -1,0 +1,73 @@
+//! Node startup compatibility checks against on-chain active protocol version.
+
+use crate::constants::PROTOCOL_VERSION;
+use crate::handlers::UpgradeHandlerRegistry;
+use crate::state::{protocol_version_major, protocol_version_minor, version_gt, ProposalInfo};
+use crate::ProtocolVersion;
+
+/// Returns `Ok(())` when `binary_version` is new enough for `active_version`.
+///
+/// Fresh/pre-governance chains use `active_version == 0` and always pass.
+pub fn assert_binary_protocol_compatible(active_version: ProtocolVersion) -> Result<(), String> {
+    if active_version == 0 || !version_gt(active_version, PROTOCOL_VERSION) {
+        return Ok(());
+    }
+
+    Err(format_binary_mismatch(PROTOCOL_VERSION, active_version))
+}
+
+/// Emits warnings for approved future proposals whose version has no handler entry.
+pub fn warn_missing_handlers_for_waiting_proposals(
+    waiting: &[ProposalInfo],
+    registry: &UpgradeHandlerRegistry,
+) {
+    for proposal in waiting {
+        if registry.lookup(proposal.version).is_none() {
+            tracing::warn!(
+                proposal_id = %proposal.id,
+                version = %format_protocol_version(proposal.version),
+                activation_height = proposal.activation_height,
+                "approved upgrade proposal has no registered migration handler; version-only activation is valid"
+            );
+        }
+    }
+}
+
+/// Formats a protocol version as `v{major}.{minor}`.
+fn format_protocol_version(version: ProtocolVersion) -> String {
+    format!(
+        "v{}.{}",
+        protocol_version_major(version),
+        protocol_version_minor(version)
+    )
+}
+
+fn format_binary_mismatch(binary: ProtocolVersion, active: ProtocolVersion) -> String {
+    format!(
+        "binary protocol version {} is older than on-chain active protocol version {}; please upgrade the binary",
+        format_protocol_version(binary),
+        format_protocol_version(active)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::encode_protocol_version;
+
+    #[test]
+    fn allows_pre_governance_active_version_zero() {
+        assert_binary_protocol_compatible(0).unwrap();
+    }
+
+    #[test]
+    fn allows_binary_newer_than_active() {
+        assert_binary_protocol_compatible(encode_protocol_version(0, 0)).unwrap();
+    }
+
+    #[test]
+    fn rejects_binary_older_than_active() {
+        let err = assert_binary_protocol_compatible(encode_protocol_version(2, 0)).unwrap_err();
+        assert!(err.to_string().contains("older than on-chain active"));
+    }
+}

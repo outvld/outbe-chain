@@ -21,6 +21,7 @@ outbe-node.workspace = true
 outbe-consensus.workspace = true
 outbe-engine.workspace = true
 outbe-primitives.workspace = true
+outbe-update.workspace = true
 outbe-tributefactory.workspace = true
 outbe-zkproof.workspace = true
 

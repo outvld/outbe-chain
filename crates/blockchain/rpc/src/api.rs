@@ -148,6 +148,124 @@ pub struct FinalizationProof {
     /// Hex of the `commonware_codec::Encode` finalized `ConsensusBlock`.
     pub block_hex: String,
 }
+/// Lifecycle status of an upgrade proposal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateProposalStatus {
+    Pending,
+    Approved,
+    Rejected,
+    Expired,
+    Activated,
+    Cancelled,
+}
+
+/// Yes/no vote counters for an upgrade proposal.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateVoteTallyInfo {
+    pub yes: u64,
+    pub no: u64,
+}
+
+/// Active on-chain protocol version.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateActiveVersionInfo {
+    pub version: u32,
+    pub major: u8,
+    pub minor: u32,
+    pub activation_height: u64,
+}
+
+/// Upgrade proposal details.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProposalInfo {
+    pub proposal_id: U256,
+    pub proposer: Address,
+    pub proposed_at_height: u64,
+    pub activation_height: u64,
+    pub voting_deadline_height: u64,
+    pub version: u32,
+    pub major: u8,
+    pub minor: u32,
+    pub info: String,
+    pub status: UpdateProposalStatus,
+    pub state: UpdateVoteTallyInfo,
+}
+
+/// Point lookup for a validator vote on a proposal.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateVoteInfo {
+    pub proposal_id: U256,
+    pub voter: Address,
+    pub approve: bool,
+    pub block_number: u64,
+}
+
+impl From<outbe_update::state::ProposalStatus> for UpdateProposalStatus {
+    fn from(status: outbe_update::state::ProposalStatus) -> Self {
+        match status {
+            outbe_update::state::ProposalStatus::Pending => Self::Pending,
+            outbe_update::state::ProposalStatus::Approved => Self::Approved,
+            outbe_update::state::ProposalStatus::Rejected => Self::Rejected,
+            outbe_update::state::ProposalStatus::Expired => Self::Expired,
+            outbe_update::state::ProposalStatus::Activated => Self::Activated,
+            outbe_update::state::ProposalStatus::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
+impl From<&outbe_update::state::ProposalInfo> for UpdateVoteTallyInfo {
+    fn from(proposal: &outbe_update::state::ProposalInfo) -> Self {
+        Self {
+            yes: proposal.yes_votes,
+            no: proposal.no_votes,
+        }
+    }
+}
+
+impl From<outbe_update::state::ProposalInfo> for UpdateProposalInfo {
+    fn from(proposal: outbe_update::state::ProposalInfo) -> Self {
+        Self {
+            proposal_id: proposal.id,
+            proposer: proposal.proposer,
+            proposed_at_height: proposal.proposed_at_height,
+            activation_height: proposal.activation_height,
+            voting_deadline_height: proposal.voting_deadline_height,
+            version: proposal.version,
+            major: outbe_update::state::protocol_version_major(proposal.version),
+            minor: outbe_update::state::protocol_version_minor(proposal.version),
+            info: hex::encode(&proposal.info),
+            status: proposal.status.into(),
+            state: (&proposal).into(),
+        }
+    }
+}
+
+impl From<outbe_update::state::VoteInfo> for UpdateVoteInfo {
+    fn from(vote: outbe_update::state::VoteInfo) -> Self {
+        Self {
+            proposal_id: vote.proposal_id,
+            voter: vote.voter,
+            approve: vote.vote_kind.to_approve(),
+            block_number: vote.block_number,
+        }
+    }
+}
+
+impl From<(outbe_update::ProtocolVersion, u64)> for UpdateActiveVersionInfo {
+    fn from((version, activation_height): (outbe_update::ProtocolVersion, u64)) -> Self {
+        Self {
+            version,
+            major: outbe_update::state::protocol_version_major(version),
+            minor: outbe_update::state::protocol_version_minor(version),
+            activation_height,
+        }
+    }
+}
 
 /// Outbe custom RPC namespace.
 ///
@@ -219,10 +337,40 @@ pub trait OutbeApi {
     /// height; otherwise errors. The caller verifies the certificate against the
     /// epoch committee — this RPC is a bytes transport, not a trust root.
     #[method(name = "getFinalization")]
-    async fn get_finalization(
+    async fn get_finalization(&self, height: u64) -> jsonrpsee::core::RpcResult<FinalizationProof>;
+
+    /// Returns the active on-chain protocol version.
+    #[method(name = "getUpdateActiveVersion")]
+    async fn get_update_active_version(
         &self,
-        height: u64,
-    ) -> jsonrpsee::core::RpcResult<FinalizationProof>;
+    ) -> jsonrpsee::core::RpcResult<UpdateActiveVersionInfo>;
+
+    /// Returns upgrade proposal details, or `null` when the id was never allocated.
+    #[method(name = "getUpdateProposal")]
+    async fn get_update_proposal(
+        &self,
+        proposal_id: U256,
+    ) -> jsonrpsee::core::RpcResult<Option<UpdateProposalInfo>>;
+
+    /// Returns proposals currently in the voting phase.
+    #[method(name = "listUpdatePendingProposals")]
+    async fn list_update_pending_proposals(
+        &self,
+    ) -> jsonrpsee::core::RpcResult<Vec<UpdateProposalInfo>>;
+
+    /// Returns approved proposals waiting for activation height.
+    #[method(name = "listUpdateWaitingProposals")]
+    async fn list_update_waiting_proposals(
+        &self,
+    ) -> jsonrpsee::core::RpcResult<Vec<UpdateProposalInfo>>;
+
+    /// Returns a validator vote on a proposal, or `null` when absent.
+    #[method(name = "getUpdateVote")]
+    async fn get_update_vote(
+        &self,
+        proposal_id: U256,
+        voter: Address,
+    ) -> jsonrpsee::core::RpcResult<Option<UpdateVoteInfo>>;
 }
 
 #[cfg(test)]
@@ -364,5 +512,29 @@ mod tests {
 
         assert!(!deserialized.consensus_active);
         assert!(deserialized.is_syncing);
+    }
+
+    #[test]
+    fn test_update_proposal_info_serialization_camel_case() {
+        use super::{UpdateProposalInfo, UpdateProposalStatus, UpdateVoteTallyInfo};
+
+        let info = UpdateProposalInfo {
+            proposal_id: U256::from(1),
+            proposer: Address::ZERO,
+            proposed_at_height: 10,
+            activation_height: 1000,
+            voting_deadline_height: 500,
+            version: 65538,
+            major: 1,
+            minor: 2,
+            info: "6869".to_string(),
+            status: UpdateProposalStatus::Pending,
+            state: UpdateVoteTallyInfo { yes: 2, no: 1 },
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"proposalId\""));
+        assert!(json.contains("\"votingDeadlineHeight\""));
+        assert!(json.contains("\"pending\""));
     }
 }

@@ -74,6 +74,12 @@ pub enum RecordedRpcCall {
     OutbeGetVrfSeed,
     OutbeGetEmissionInfo,
     OutbeGetSlashConfig,
+    OutbeGetUpdateActiveVersion,
+    OutbeGetUpdateProposal {
+        proposal_id: U256,
+    },
+    OutbeListUpdatePendingProposals,
+    OutbeListUpdateWaitingProposals,
     EthGetLogs {
         address: Address,
         topics: Vec<Option<String>>,

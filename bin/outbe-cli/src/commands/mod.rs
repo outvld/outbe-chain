@@ -7,6 +7,7 @@ pub mod slash;
 pub mod staking;
 pub mod tee;
 pub mod tribute;
+pub mod update;
 pub mod validator;
 pub mod zerofee;
 

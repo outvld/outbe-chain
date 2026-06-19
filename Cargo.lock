@@ -6712,6 +6712,7 @@ dependencies = [
  "outbe-primitives",
  "outbe-rpc",
  "outbe-tributefactory",
+ "outbe-update",
  "outbe-zkproof",
  "reqwest 0.12.28",
  "reth-chainspec",
@@ -6891,9 +6892,9 @@ dependencies = [
  "outbe-primitives",
  "outbe-promislimit",
  "outbe-tribute",
- "outbe-vaultprovider",
  "outbe-update",
  "outbe-validatorset",
+ "outbe-vaultprovider",
 ]
 
 [[package]]
@@ -6939,6 +6940,7 @@ dependencies = [
  "outbe-primitives",
  "outbe-tee",
  "outbe-teeregistry",
+ "outbe-update",
  "outbe-validatorset",
  "proptest",
  "rand_core 0.6.4",
@@ -7441,6 +7443,7 @@ dependencies = [
  "outbe-rewards",
  "outbe-slashindicator",
  "outbe-staking",
+ "outbe-update",
  "outbe-validatorset",
  "reth-ethereum",
  "serde",
