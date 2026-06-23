@@ -25,7 +25,11 @@ interface IGovernance {
         uint64 createdHeight,
         uint64 votingDeadlineHeight,
         ProposalStatus status,
-        VoteTally state
+        /// @notice Results of voting (if it would have been calculated now).
+        /// The actual state may differ, e.g. if validator set changes before voting deadline.
+        VoteTally state,
+        /// @dev The full list of voters is not transmitted, and can be retrieved using `getProposalVoters`.
+        uint256 votersCount,
     }
 
     /// @notice New proposal was created.
@@ -73,9 +77,12 @@ interface IGovernance {
     /// @notice Returns proposal details.
     function getProposal(uint256 proposalId) external view returns (ProposalInfo memory);
 
+    /// @notice Returns a slice of voters for a proposal, with pagination, to prevent bloating the response.
+    function getProposalVoters(uint256 proposalId, uint256 index, uint256 count) external view returns (address[] memory);
+
     /// @notice Returns all tracked proposal ids.
-    function listProposals() external view returns (uint256[] memory);
+    function listProposals(uint256 index, uint256 count) external view returns (uint256[] memory);
 
     /// @notice Returns proposal ids filtered by status.
-    function listProposalsByStatus(ProposalStatus status) external view returns (uint256[] memory);
+    function listProposalsByStatus(ProposalStatus status, uint256 index, uint256 count) external view returns (uint256[] memory);
 }

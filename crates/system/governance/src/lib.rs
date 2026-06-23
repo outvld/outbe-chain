@@ -20,7 +20,10 @@ pub mod state;
 
 pub use precompile::GOVERNANCE_ABI_PATH;
 pub use schema::Governance;
-pub use state::{ProposalInfo, ProposalStatus, VoteInfo, VoteKind, VoteTally};
+pub use state::{
+    active_validator_addresses, calculate_vote_tally, ProposalInfo, ProposalStatus, VoteInfo,
+    VoteKind, VoteTally,
+};
 
 #[cfg(test)]
 mod tests;

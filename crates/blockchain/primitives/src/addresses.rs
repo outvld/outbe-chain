@@ -197,6 +197,12 @@ pub const TEE_REGISTRY_ADDRESS: Address = address!("0x00000000000000000000000000
 /// dispatch is registered at `UPDATE_ADDRESS`; lifecycle activation is wired later.
 pub const UPDATE_ADDRESS: Address = address!("0x000000000000000000000000000000000000EE0B");
 
+/// Generic on-chain governance precompile address.
+///
+/// Hosts reusable proposal/voting state. Callable dispatch will be registered
+/// at `GOVERNANCE_ADDRESS` in Phase 2 after runtime extraction from `update`.
+pub const GOVERNANCE_ADDRESS: Address = address!("0x000000000000000000000000000000000000EE0C");
+
 /// Whitelist of `to` addresses accepted on the EIP-7702 sponsored
 /// (zero-fee) path enabled by [`ZEROFEE_ADDRESS`].
 ///

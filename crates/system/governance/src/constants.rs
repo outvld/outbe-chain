@@ -12,3 +12,6 @@ pub const QUORUM_DENOMINATOR: u64 = 3;
 
 /// Maximum number of proposals in the bounded pending index.
 pub const MAX_PENDING_PROPOSALS: u32 = 64;
+
+/// Maximum page size for paginated governance reads.
+pub const MAX_PAGE_SIZE: u64 = 100;

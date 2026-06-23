@@ -23,6 +23,7 @@ members = [
     "crates/system/tee",
     "crates/system/teeregistry",
     "crates/system/update",
+    "crates/system/governance",
     # core outbe
     "crates/core/gratis",
     "crates/core/promis",
@@ -101,6 +102,7 @@ outbe-zkproof = { path = "crates/system/zkproof" }
 outbe-tee = { path = "crates/system/tee" }
 outbe-teeregistry = { path = "crates/system/teeregistry" }
 outbe-update = { path = "crates/system/update" }
+outbe-governance = { path = "crates/system/governance" }
 # Core — outbe
 outbe-gratis = { path = "crates/core/gratis" }
 outbe-promis = { path = "crates/core/promis" }
@@ -181,7 +183,9 @@ reth-ethereum-engine-primitives = { git = "https://github.com/paradigmxyz/reth.g
 reth-payload-primitives = { git = "https://github.com/paradigmxyz/reth.git", tag = "v2.2.0" }
 reth-payload-validator = { git = "https://github.com/paradigmxyz/reth.git", tag = "v2.2.0" }
 reth-primitives-traits = { version = "0.3.1", default-features = false }
-reth-codecs = { version = "0.3.1", default-features = false, features = ["alloy"] }
+reth-codecs = { version = "0.3.1", default-features = false, features = [
+    "alloy",
+] }
 reth-storage-api = { git = "https://github.com/paradigmxyz/reth.git", tag = "v2.2.0" }
 reth-transaction-pool = { git = "https://github.com/paradigmxyz/reth.git", tag = "v2.2.0" }
 reth-e2e-test-utils = { git = "https://github.com/paradigmxyz/reth.git", tag = "v2.2.0" }

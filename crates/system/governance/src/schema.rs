@@ -1,8 +1,8 @@
+use crate::errors::GovernanceError;
 use alloy_primitives::{Address, B256, U256};
 use outbe_macros::{contract, storage_record, storage_schema};
 use outbe_primitives::addresses::GOVERNANCE_ADDRESS;
-
-use crate::errors::GovernanceError;
+use outbe_primitives::storage::{Storable, StorableType};
 
 /// Lifecycle status of a generic governance proposal.
 ///
@@ -71,12 +71,6 @@ pub struct ProposalRecord {
     // TODO: Extend storage to support enum fields?
     #[attribute(order = 6)]
     pub status: u8, // ProposalStatus
-
-    #[attribute(order = 7)]
-    pub yes_votes: u64,
-
-    #[attribute(order = 8)]
-    pub no_votes: u64,
 }
 
 impl ProposalRecord {
@@ -91,20 +85,11 @@ impl ProposalRecord {
     }
 }
 
-/// Vote record keyed by `vote_key = keccak256(proposal_id_be32 || voter_address_20)`.
+/// Vote record stored in each proposal's ordered vote list.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[storage_record(exists_field = voter)]
 pub struct VoteRecord {
-    #[key]
-    pub vote_key: B256,
-
-    #[attribute(order = 0)]
     pub voter: Address,
-
-    #[attribute(order = 1)]
     pub vote_kind: u8, // VoteKind
-
-    #[attribute(order = 2)]
     pub block_number: u64,
 }
 
@@ -157,5 +142,12 @@ pub struct Governance {
     pub proposals: outbe_primitives::storage::dsl::Map<U256, ProposalRecord>,
 
     #[attribute(order = 3)]
-    pub votes: outbe_primitives::storage::dsl::Map<B256, VoteRecord>,
+    /// Maps `keccak256(proposal_id || voter)` to a 1-based position in `proposal_voters`.
+    /// Zero means the validator has not voted on the proposal.
+    pub votes_map: outbe_primitives::storage::dsl::Map<B256, u32>,
+
+    /// Ordered vote records per proposal.
+    #[attribute(order = 4)]
+    pub proposal_voters:
+        outbe_primitives::storage::dsl::Map<U256, outbe_primitives::storage::dsl::List<VoteRecord>>,
 }

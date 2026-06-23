@@ -1,8 +1,68 @@
-use alloy_primitives::{address, U256};
+use alloy_primitives::{address, Address, B256, U256};
 
+use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
+use outbe_primitives::error::{PrecompileError, Result};
+use outbe_primitives::storage::hashmap::HashMapStorageProvider;
+use outbe_primitives::storage::StorageHandle;
+use outbe_validatorset::contract::ValidatorSet;
+
+use crate::api::{get_proposal, get_proposal_voters, list_proposals, list_proposals_by_status};
+use crate::constants::VOTING_WINDOW_BLOCKS;
 use crate::runtime::quorum_reached;
+use crate::schema::Governance;
 use crate::schema::ProposalStatus;
-use crate::state::{vote_key, VoteKind};
+use crate::state::{calculate_vote_tally, vote_key, VoteKind, VoteTally};
+
+const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
+const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
+const VOTER_B: Address = address!("0x3333333333333333333333333333333333333333");
+const VALIDATOR_OWNER: Address = address!("0xffffffffffffffffffffffffffffffffffffffff");
+
+const TARGET_MODULE: B256 = B256::ZERO;
+const ACTION: B256 = B256::new([0xAB; 32]);
+
+fn dummy_pubkey(seed: u8) -> [u8; 48] {
+    let mut pk = [0u8; 48];
+    pk[0] = seed;
+    pk
+}
+
+fn register_active_validator(storage: StorageHandle, addr: Address, seed: u8) {
+    let mut vs = ValidatorSet::new(storage.clone());
+    vs.config_owner.write(VALIDATOR_OWNER).unwrap();
+    vs.config_max_validators.write(100).unwrap();
+    vs.register_validator(VALIDATOR_OWNER, addr, &dummy_pubkey(seed))
+        .unwrap();
+    vs.activate_validator(addr).unwrap();
+}
+
+fn setup_default_validators(storage: StorageHandle) {
+    register_active_validator(storage.clone(), PROPOSER, 1);
+    register_active_validator(storage.clone(), VOTER_A, 2);
+    register_active_validator(storage.clone(), VOTER_B, 3);
+}
+
+fn with_governance<F: FnOnce(StorageHandle)>(f: F) {
+    let mut provider = HashMapStorageProvider::new(1);
+    let storage = StorageHandle::new(&mut provider);
+    setup_default_validators(storage.clone());
+    f(storage);
+}
+
+fn block_ctx(storage: StorageHandle, block_number: u64) -> BlockRuntimeContext {
+    BlockRuntimeContext::new(BlockContext::empty_for_tests(block_number, 0, 1), storage)
+}
+
+trait GovernanceTestExt {
+    fn process_begin_block_test(&mut self, block_number: u64) -> Result<()>;
+}
+
+impl GovernanceTestExt for Governance<'_> {
+    fn process_begin_block_test(&mut self, block_number: u64) -> Result<()> {
+        let ctx = block_ctx(self.storage.clone(), block_number);
+        self.process_begin_block(&ctx)
+    }
+}
 
 #[test]
 fn proposal_status_storage_roundtrip() {
@@ -46,4 +106,241 @@ fn vote_key_depends_on_proposal_and_voter() {
         vote_key(U256::from(1), voter_a),
         vote_key(U256::from(1), voter_b)
     );
+}
+
+#[test]
+fn write_vote_appends_ordered_voters() {
+    with_governance(|storage| {
+        let mut governance = Governance::new(storage.clone());
+        let current = 10u64;
+        let proposal_id = governance
+            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"payload", current)
+            .unwrap();
+
+        governance
+            .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
+            .unwrap();
+        governance
+            .cast_vote_approve(proposal_id, VOTER_B, false, current + 2)
+            .unwrap();
+
+        assert_eq!(
+            governance.read_proposal_voters(proposal_id).unwrap(),
+            vec![VOTER_A, VOTER_B]
+        );
+        assert_eq!(governance.read_proposal_voters(proposal_id).unwrap().len(), 2);
+        assert_eq!(
+            governance
+                .votes_map
+                .read(&vote_key(proposal_id, VOTER_A))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            governance
+                .votes_map
+                .read(&vote_key(proposal_id, VOTER_B))
+                .unwrap(),
+            2
+        );
+    });
+}
+
+#[test]
+fn duplicate_vote_is_rejected() {
+    with_governance(|storage| {
+        let mut governance = Governance::new(storage.clone());
+        let current = 20u64;
+        let proposal_id = governance
+            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .unwrap();
+
+        governance
+            .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
+            .unwrap();
+
+        let err = governance
+            .cast_vote_approve(proposal_id, VOTER_A, false, current + 2)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            PrecompileError::Revert(msg) if msg.contains("already voted")
+        ));
+
+        assert_eq!(
+            governance.read_proposal_voters(proposal_id).unwrap(),
+            vec![VOTER_A]
+        );
+    });
+}
+
+#[test]
+fn get_proposal_voters_pagination_is_deterministic() {
+    with_governance(|storage| {
+        let mut governance = Governance::new(storage.clone());
+        let current = 30u64;
+        let proposal_id = governance
+            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .unwrap();
+
+        governance
+            .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
+            .unwrap();
+        governance
+            .cast_vote_approve(proposal_id, VOTER_B, false, current + 2)
+            .unwrap();
+
+        assert_eq!(
+            get_proposal_voters(storage.clone(), proposal_id, U256::ZERO, U256::from(1))
+                .unwrap(),
+            vec![VOTER_A]
+        );
+        assert_eq!(
+            get_proposal_voters(storage.clone(), proposal_id, U256::from(1), U256::from(1))
+                .unwrap(),
+            vec![VOTER_B]
+        );
+        assert_eq!(
+            get_proposal_voters(storage.clone(), proposal_id, U256::from(1), U256::from(10))
+                .unwrap(),
+            vec![VOTER_B]
+        );
+        assert!(
+            get_proposal_voters(storage, proposal_id, U256::from(2), U256::from(1))
+                .unwrap()
+                .is_empty()
+        );
+    });
+}
+
+#[test]
+fn get_proposal_uses_active_set_at_read_time() {
+    with_governance(|storage| {
+        let mut governance = Governance::new(storage.clone());
+        let current = 40u64;
+        let proposal_id = governance
+            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .unwrap();
+
+        governance
+            .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
+            .unwrap();
+        governance
+            .cast_vote_approve(proposal_id, VOTER_B, true, current + 2)
+            .unwrap();
+
+        let info = get_proposal(storage.clone(), proposal_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(info.state, VoteTally { yes: 2, no: 0 });
+        assert_eq!(info.voters_count, 2);
+
+        ValidatorSet::new(storage.clone())
+            .deactivate_validator(VALIDATOR_OWNER, VOTER_A)
+            .unwrap();
+
+        let info = get_proposal(storage, proposal_id).unwrap().unwrap();
+        assert_eq!(info.state, VoteTally { yes: 1, no: 0 });
+        assert_eq!(info.voters_count, 2);
+    });
+}
+
+#[test]
+fn inactive_voter_is_ignored_at_deadline_tally() {
+    with_governance(|storage| {
+        let mut governance = Governance::new(storage.clone());
+        let current = 100u64;
+        let proposal_id = governance
+            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .unwrap();
+
+        governance
+            .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
+            .unwrap();
+
+        ValidatorSet::new(storage.clone())
+            .deactivate_validator(VALIDATOR_OWNER, VOTER_A)
+            .unwrap();
+
+        governance
+            .cast_vote_approve(proposal_id, PROPOSER, true, current + 2)
+            .unwrap();
+        governance
+            .cast_vote_approve(proposal_id, VOTER_B, true, current + 3)
+            .unwrap();
+
+        let deadline = current + VOTING_WINDOW_BLOCKS + 1;
+        governance.process_begin_block_test(deadline).unwrap();
+
+        let record = governance.proposals.get(proposal_id).unwrap().unwrap();
+        assert_eq!(record.proposal_status().unwrap(), ProposalStatus::Approved);
+
+        let active = crate::state::active_validator_addresses(storage.clone()).unwrap();
+        let tally = calculate_vote_tally(&governance, &record, &active).unwrap();
+        assert_eq!(tally, VoteTally { yes: 2, no: 0 });
+        assert_eq!(
+            governance.read_proposal_voters(proposal_id).unwrap(),
+            vec![VOTER_A, PROPOSER, VOTER_B]
+        );
+    });
+}
+
+#[test]
+fn deadline_quorum_requires_two_thirds_of_active_set() {
+    with_governance(|storage| {
+        let mut governance = Governance::new(storage.clone());
+        let current = 200u64;
+        let proposal_id = governance
+            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .unwrap();
+
+        governance
+            .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
+            .unwrap();
+
+        let deadline = current + VOTING_WINDOW_BLOCKS + 1;
+        governance.process_begin_block_test(deadline).unwrap();
+
+        let record = governance.proposals.get(proposal_id).unwrap().unwrap();
+        assert_eq!(record.proposal_status().unwrap(), ProposalStatus::Expired);
+    });
+}
+
+#[test]
+fn list_proposals_and_by_status_are_paginated() {
+    with_governance(|storage| {
+        let mut governance = Governance::new(storage.clone());
+        let current = 300u64;
+        let first = governance
+            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"one", current)
+            .unwrap();
+        let second = governance
+            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"two", current + 1)
+            .unwrap();
+
+        assert_eq!(
+            list_proposals(storage.clone(), U256::ZERO, U256::from(10)).unwrap(),
+            vec![first, second]
+        );
+        assert_eq!(
+            list_proposals_by_status(
+                storage.clone(),
+                ProposalStatus::Pending,
+                U256::ZERO,
+                U256::from(1)
+            )
+            .unwrap(),
+            vec![first]
+        );
+        assert_eq!(
+            list_proposals_by_status(
+                storage,
+                ProposalStatus::Pending,
+                U256::from(1),
+                U256::from(1)
+            )
+            .unwrap(),
+            vec![second]
+        );
+    });
 }

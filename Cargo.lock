@@ -7091,6 +7091,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "outbe-governance"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "outbe-macros",
+ "outbe-primitives",
+ "outbe-validatorset",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "outbe-gratis"
 version = "0.1.0"
 dependencies = [

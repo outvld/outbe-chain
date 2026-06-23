@@ -1,7 +1,10 @@
 use alloy_primitives::{keccak256, Address, B256, U256};
 use outbe_primitives::error::Result;
+use outbe_primitives::storage::StorageHandle;
+use outbe_validatorset::contract::ValidatorSet;
 use tracing::warn;
 
+use crate::constants::MAX_PAGE_SIZE;
 use crate::errors::GovernanceError;
 use crate::schema::{Governance, ProposalRecord, VoteRecord};
 
@@ -49,16 +52,7 @@ pub struct VoteTally {
     pub no: u64,
 }
 
-impl From<&ProposalInfo> for VoteTally {
-    fn from(proposal: &ProposalInfo) -> Self {
-        Self {
-            yes: proposal.yes_votes,
-            no: proposal.no_votes,
-        }
-    }
-}
-
-/// Materialized generic governance proposal read from storage.
+/// `IGovernance.ProposalInfo` — external view with computed tally, no voter list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProposalInfo {
     pub id: U256,
@@ -69,14 +63,8 @@ pub struct ProposalInfo {
     pub created_height: u64,
     pub voting_deadline_height: u64,
     pub status: ProposalStatus,
-    pub yes_votes: u64,
-    pub no_votes: u64,
-}
-
-impl ProposalInfo {
-    pub fn tally(&self) -> VoteTally {
-        VoteTally::from(self)
-    }
+    pub state: VoteTally,
+    pub voters_count: u64,
 }
 
 /// Materialized vote read from storage.
@@ -86,26 +74,6 @@ pub struct VoteInfo {
     pub voter: Address,
     pub vote_kind: VoteKind,
     pub block_number: u64,
-}
-
-impl TryFrom<ProposalRecord> for ProposalInfo {
-    type Error = GovernanceError;
-
-    fn try_from(record: ProposalRecord) -> std::result::Result<Self, Self::Error> {
-        let status = record.proposal_status()?;
-        Ok(Self {
-            id: record.id,
-            proposer: record.proposer,
-            target_module: record.target_module,
-            action: record.action,
-            payload: record.payload,
-            created_height: record.created_height,
-            voting_deadline_height: record.voting_deadline_height,
-            status,
-            yes_votes: record.yes_votes,
-            no_votes: record.no_votes,
-        })
-    }
 }
 
 impl VoteRecord {
@@ -130,7 +98,47 @@ pub fn vote_key(proposal_id: U256, voter: Address) -> B256 {
     keccak256(buf)
 }
 
-impl Governance<'_> {
+/// Returns active validator addresses for tally filtering.
+pub fn active_validator_addresses(storage: StorageHandle<'_>) -> Result<Vec<Address>> {
+    let vs = ValidatorSet::new(storage);
+    Ok(vs
+        .get_active_validators()?
+        .into_iter()
+        .map(|v| v.validator_address)
+        .collect())
+}
+
+fn is_active_validator(voter: Address, active_validators: &[Address]) -> bool {
+    active_validators.iter().any(|active| *active == voter)
+}
+
+fn clamp_page(index: U256, count: U256) -> (usize, usize) {
+    let index = index.to::<u64>() as usize;
+    let count = count.to::<u64>().min(MAX_PAGE_SIZE) as usize;
+    (index, count)
+}
+
+/// Recalculates yes/no counts from stored voters filtered by the active validator set.
+pub fn calculate_vote_tally(
+    governance: &Governance<'_>,
+    proposal: &ProposalRecord,
+    active_validators: &[Address],
+) -> Result<VoteTally> {
+    let mut yes = 0u64;
+    let mut no = 0u64;
+    for vote in governance.proposal_voters.list(&proposal.id).read_all()? {
+        if !is_active_validator(vote.voter, active_validators) {
+            continue;
+        }
+        match VoteKind::from_u8(vote.vote_kind)? {
+            VoteKind::Yes => yes += 1,
+            VoteKind::No => no += 1,
+        }
+    }
+    Ok(VoteTally { yes, no })
+}
+
+impl<'storage> Governance<'storage> {
     /// Returns the next proposal id without incrementing the counter.
     pub fn peek_next_proposal_id(&self) -> Result<U256> {
         let current = self.proposal_count.read()?;
@@ -143,24 +151,117 @@ impl Governance<'_> {
         Ok(!proposal_id.is_zero() && proposal_id <= count)
     }
 
-    pub fn read_proposal(&self, proposal_id: U256) -> Result<Option<ProposalInfo>> {
+    pub fn get_proposal(&self, proposal_id: U256) -> Result<Option<ProposalInfo>> {
         if !self.proposal_exists(proposal_id)? {
             return Ok(None);
         }
-        Ok(self
-            .proposals
-            .get(proposal_id)?
-            .map(ProposalInfo::try_from)
-            .transpose()?)
+        let Some(record) = self.proposals.get(proposal_id)? else {
+            return Ok(None);
+        };
+        let active = active_validator_addresses(self.storage.clone())?;
+        let state = calculate_vote_tally(self, &record, &active)?;
+        let status = record.proposal_status()?;
+        let voters_count = self.proposal_voters.list(&proposal_id).len()? as u64;
+        Ok(Some(ProposalInfo {
+            id: record.id,
+            proposer: record.proposer,
+            target_module: record.target_module,
+            action: record.action,
+            payload: record.payload,
+            created_height: record.created_height,
+            voting_deadline_height: record.voting_deadline_height,
+            status,
+            state,
+            voters_count,
+        }))
     }
 
     pub fn read_vote(&self, proposal_id: U256, voter: Address) -> Result<Option<VoteInfo>> {
         let key = vote_key(proposal_id, voter);
+        let position = self.votes_map.read(&key)?;
+        if position == 0 {
+            return Ok(None);
+        }
         Ok(self
-            .votes
-            .get(key)?
+            .proposal_voters
+            .list(&proposal_id)
+            .get(position - 1)?
             .map(|record| record.into_vote_info(proposal_id))
             .transpose()?)
+    }
+
+    pub fn read_proposal_voters_page(
+        &self,
+        proposal_id: U256,
+        index: U256,
+        count: U256,
+    ) -> Result<Vec<Address>> {
+        self
+            .proposals
+            .get(proposal_id)?
+            .ok_or(GovernanceError::ProposalNotFound)?;
+        let (index, count) = clamp_page(index, count);
+        let voters = self.proposal_voters.list(&proposal_id);
+        let len = voters.len()? as usize;
+        let mut page = Vec::new();
+        for offset in 0..count {
+            let pos = index + offset;
+            if pos >= len {
+                break;
+            }
+            if let Some(vote) = voters.get(pos as u32)? {
+                page.push(vote.voter);
+            }
+        }
+        Ok(page)
+    }
+
+    pub fn read_proposal_voters(&self, proposal_id: U256) -> Result<Vec<Address>> {
+        self.proposals
+            .get(proposal_id)?
+            .ok_or(GovernanceError::ProposalNotFound)?;
+        Ok(self
+            .proposal_voters
+            .list(&proposal_id)
+            .read_all()?
+            .into_iter()
+            .map(|vote| vote.voter)
+            .collect())
+    }
+
+    pub fn list_proposals(&self, index: U256, count: U256) -> Result<Vec<U256>> {
+        let total = self.proposal_count.read()?.to::<u64>() as usize;
+        let (index, count) = clamp_page(index, count);
+        let mut result = Vec::new();
+        for offset in 0..count {
+            let pos = index + offset;
+            if pos >= total {
+                break;
+            }
+            result.push(U256::from(pos + 1));
+        }
+        Ok(result)
+    }
+
+    pub fn list_proposals_by_status(
+        &self,
+        status: ProposalStatus,
+        index: U256,
+        count: U256,
+    ) -> Result<Vec<U256>> {
+        let total = self.proposal_count.read()?.to::<u64>() as usize;
+        let (start_index, page_size) = clamp_page(index, count);
+        let mut matched = Vec::new();
+        for id_num in 1..=total {
+            let proposal_id = U256::from(id_num);
+            let Some(record) = self.proposals.get(proposal_id)? else {
+                continue;
+            };
+            if record.proposal_status()? == status {
+                matched.push(proposal_id);
+            }
+        }
+        Ok(matched.into_iter().skip(start_index).take(page_size).collect())
     }
 
     pub fn list_pending_proposal_ids(&self) -> Result<Vec<U256>> {
@@ -189,8 +290,6 @@ impl Governance<'_> {
             created_height,
             voting_deadline_height,
             status: status.to_u8(),
-            yes_votes: 0,
-            no_votes: 0,
         };
         self.proposals.create(&record)?;
 
@@ -209,22 +308,18 @@ impl Governance<'_> {
         block_number: u64,
     ) -> Result<()> {
         let key = vote_key(proposal_id, voter);
-        self.votes.create(&VoteRecord {
-            vote_key: key,
+        self
+            .proposals
+            .get(proposal_id)?
+            .ok_or(GovernanceError::ProposalNotFound)?;
+        let votes = self.proposal_voters.list(&proposal_id);
+        let index = votes.len()?;
+        votes.push(VoteRecord {
             voter,
             vote_kind: kind.to_u8(),
             block_number,
         })?;
-
-        let mut proposal = self
-            .proposals
-            .get(proposal_id)?
-            .ok_or(GovernanceError::ProposalNotFound)?;
-        match kind {
-            VoteKind::Yes => proposal.yes_votes += 1,
-            VoteKind::No => proposal.no_votes += 1,
-        }
-        self.proposals.update(&proposal)?;
+        self.votes_map.write(&key, index + 1)?;
         Ok(())
     }
 

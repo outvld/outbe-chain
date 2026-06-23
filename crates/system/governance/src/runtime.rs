@@ -10,7 +10,7 @@ use crate::constants::{
 };
 use crate::errors::GovernanceError;
 use crate::schema::Governance;
-use crate::state::{ProposalStatus, VoteKind};
+use crate::state::{active_validator_addresses, calculate_vote_tally, ProposalStatus, VoteKind};
 
 /// Returns `Ok(())` when `caller` is a registered validator with `status == ACTIVE`.
 pub fn ensure_active_validator(storage: StorageHandle<'_>, caller: Address) -> Result<()> {
@@ -71,9 +71,10 @@ impl Governance<'_> {
         ensure_active_validator(self.storage.clone(), voter)?;
 
         let proposal = self
-            .read_proposal(proposal_id)?
+            .proposals
+            .get(proposal_id)?
             .ok_or(GovernanceError::ProposalNotFound)?;
-        if proposal.status != ProposalStatus::Pending {
+        if proposal.proposal_status()? != ProposalStatus::Pending {
             return Err(GovernanceError::NotPending.into());
         }
         if block_number > proposal.voting_deadline_height {
@@ -99,10 +100,10 @@ impl Governance<'_> {
         let block_number = ctx.block.block_number;
         let pending_ids = self.list_pending_proposal_ids()?;
         for proposal_id in pending_ids {
-            let Some(proposal) = self.read_proposal(proposal_id)? else {
+            let Some(proposal) = self.proposals.get(proposal_id)? else {
                 return Err(GovernanceError::ProposalNotFound.into());
             };
-            if proposal.status == ProposalStatus::Pending
+            if proposal.proposal_status()? == ProposalStatus::Pending
                 && block_number > proposal.voting_deadline_height
             {
                 self.finalize_voting(proposal_id)?;
@@ -113,15 +114,18 @@ impl Governance<'_> {
 
     fn finalize_voting(&mut self, proposal_id: U256) -> Result<()> {
         let proposal = self
-            .read_proposal(proposal_id)?
+            .proposals
+            .get(proposal_id)?
             .ok_or(GovernanceError::ProposalNotFound)?;
-        if proposal.status != ProposalStatus::Pending {
+        if proposal.proposal_status()? != ProposalStatus::Pending {
             return Ok(());
         }
 
+        let active = active_validator_addresses(self.storage.clone())?;
+        let tally = calculate_vote_tally(self, &proposal, &active)?;
         let vs = ValidatorSet::new(self.storage.clone());
         let active_count = vs.active_validator_count()?;
-        if quorum_reached(proposal.yes_votes, active_count) {
+        if quorum_reached(tally.yes, active_count) {
             self.set_proposal_status(proposal_id, ProposalStatus::Approved)
         } else {
             self.set_proposal_status(proposal_id, ProposalStatus::Expired)
