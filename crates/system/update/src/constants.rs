@@ -1,21 +1,9 @@
-//! Protocol constants for upgrade governance.
+//! Protocol constants for upgrade scheduling and activation.
 //!
 //! All values are `const` and change only via hardfork.
 
-/// Blocks in the voting window (~1 day at 1s block time).
-pub const VOTING_WINDOW_BLOCKS: u64 = 86_400;
-
-/// Quorum numerator for 2/3 approval (`yes * DENOM >= active * NUM`).
-pub const QUORUM_NUMERATOR: u64 = 2;
-
-/// Quorum denominator for 2/3 approval.
-pub const QUORUM_DENOMINATOR: u64 = 3;
-
-/// Minimum blocks between proposal creation and activation after voting closes.
+/// Minimum blocks between governance approval and activation height.
 pub const MIN_ACTIVATION_BUFFER: u64 = 100;
-
-/// Cap on simultaneous open proposals in `pending_proposal_ids` (voting phase).
-pub const MAX_PENDING_PLANS: u32 = 16;
 
 /// Current binary protocol version.
 pub const PROTOCOL_VERSION: crate::ProtocolVersion =

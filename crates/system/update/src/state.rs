@@ -1,132 +1,37 @@
-use alloy_primitives::{keccak256, Address, B256, U256};
-
-use outbe_primitives::error::Result;
+use alloy_primitives::U256;
 use tracing::warn;
 
+use outbe_primitives::error::Result;
+
 use crate::errors::UpdateError;
-use crate::schema::{ProposalRecord, Update, VoteRecord};
+use crate::schema::{ScheduledUpdateRecord, Update};
 use crate::ProtocolVersion;
 
-pub use crate::schema::ProposalStatus;
+pub use crate::schema::ScheduledUpdateStatus;
 
-/// Vote choice on a proposal (storage: 0=No, 1=Yes).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum VoteKind {
-    No = 0,
-    Yes = 1,
-}
-
-impl VoteKind {
-    pub fn from_u8(value: u8) -> std::result::Result<Self, UpdateError> {
-        match value {
-            0 => Ok(Self::No),
-            1 => Ok(Self::Yes),
-            _ => Err(UpdateError::InvalidVoteKind),
-        }
-    }
-
-    pub fn to_u8(self) -> u8 {
-        self as u8
-    }
-
-    /// ABI `castVote(bool approve)` — `true` = Yes, `false` = No.
-    pub fn from_approve(approve: bool) -> Self {
-        if approve {
-            Self::Yes
-        } else {
-            Self::No
-        }
-    }
-
-    pub fn to_approve(self) -> bool {
-        matches!(self, Self::Yes)
-    }
-}
-
-/// Yes/no vote counters for a proposal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VoteTally {
-    pub yes: u64,
-    pub no: u64,
-}
-
-impl From<&ProposalInfo> for VoteTally {
-    fn from(proposal: &ProposalInfo) -> Self {
-        Self {
-            yes: proposal.yes_votes,
-            no: proposal.no_votes,
-        }
-    }
-}
-
-/// Materialized upgrade proposal read from storage.
+/// Materialized scheduled update read from storage.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProposalInfo {
-    pub id: U256,
+pub struct ScheduledUpdateInfo {
+    pub proposal_id: U256,
     pub version: ProtocolVersion,
     pub activation_height: u64,
-    pub voting_deadline_height: u64,
     pub info: Vec<u8>,
-    pub proposer: Address,
-    pub proposed_at_height: u64,
-    pub status: ProposalStatus,
-    pub yes_votes: u64,
-    pub no_votes: u64,
+    pub status: ScheduledUpdateStatus,
 }
 
-impl ProposalInfo {
-    pub fn tally(&self) -> VoteTally {
-        VoteTally::from(self)
-    }
-}
-
-/// Materialized vote read from storage.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VoteInfo {
-    pub proposal_id: U256,
-    pub voter: Address,
-    pub vote_kind: VoteKind,
-    pub block_number: u64,
-}
-
-impl TryFrom<ProposalRecord> for ProposalInfo {
+impl TryFrom<ScheduledUpdateRecord> for ScheduledUpdateInfo {
     type Error = UpdateError;
 
-    fn try_from(record: ProposalRecord) -> std::result::Result<Self, Self::Error> {
-        let status = record.proposal_status()?;
+    fn try_from(record: ScheduledUpdateRecord) -> std::result::Result<Self, Self::Error> {
+        let status = record.scheduled_update_status()?;
         Ok(Self {
-            id: record.id,
+            proposal_id: record.proposal_id,
             version: record.version,
             activation_height: record.activation_height,
-            voting_deadline_height: record.voting_deadline_height,
             info: record.info,
-            proposer: record.proposer,
-            proposed_at_height: record.proposed_at_height,
             status,
-            yes_votes: record.yes_votes,
-            no_votes: record.no_votes,
         })
     }
-}
-
-impl VoteRecord {
-    pub fn into_vote_info(self, proposal_id: U256) -> std::result::Result<VoteInfo, UpdateError> {
-        Ok(VoteInfo {
-            proposal_id,
-            voter: self.voter,
-            vote_kind: VoteKind::from_u8(self.vote_kind)?,
-            block_number: self.block_number,
-        })
-    }
-}
-
-/// Composite vote key: `keccak256(proposal_id_be32 || voter_address_20)`.
-pub fn vote_key(proposal_id: U256, voter: Address) -> B256 {
-    let mut buf = [0u8; 52];
-    buf[..32].copy_from_slice(&proposal_id.to_be_bytes::<32>());
-    buf[32..52].copy_from_slice(voter.as_slice());
-    keccak256(buf)
 }
 
 /// Returns the major part of an encoded protocol version.
@@ -140,43 +45,13 @@ pub const fn protocol_version_minor(version: ProtocolVersion) -> u32 {
 }
 
 impl Update<'_> {
-    /// Returns the next proposal id without incrementing the counter.
-    pub fn peek_next_proposal_id(&self) -> Result<U256> {
-        let current = self.proposal_count.read()?;
-        Ok(current + U256::from(1))
-    }
-
-    /// Returns `true` when `proposal_id` has been allocated by `write_proposal`.
-    pub fn proposal_exists(&self, proposal_id: U256) -> Result<bool> {
-        let count = self.proposal_count.read()?;
-        Ok(!proposal_id.is_zero() && proposal_id <= count)
-    }
-
-    /// Reads a proposal or returns `None` when the id was never allocated.
-    pub fn read_proposal(&self, proposal_id: U256) -> Result<Option<ProposalInfo>> {
-        if !self.proposal_exists(proposal_id)? {
-            return Ok(None);
-        }
+    /// Reads a scheduled update or returns `None` when absent.
+    pub fn read_scheduled_update(&self, proposal_id: U256) -> Result<Option<ScheduledUpdateInfo>> {
         Ok(self
-            .proposals
+            .scheduled_updates
             .get(proposal_id)?
-            .map(ProposalInfo::try_from)
+            .map(ScheduledUpdateInfo::try_from)
             .transpose()?)
-    }
-
-    /// Reads a vote or returns `None` when absent.
-    pub fn read_vote(&self, proposal_id: U256, voter: Address) -> Result<Option<VoteInfo>> {
-        let key = vote_key(proposal_id, voter);
-        Ok(self
-            .votes
-            .get(key)?
-            .map(|record| record.into_vote_info(proposal_id))
-            .transpose()?)
-    }
-
-    /// Returns all proposal ids in the pending (voting) index.
-    pub fn list_pending_proposal_ids(&self) -> Result<Vec<U256>> {
-        self.pending_proposal_ids.read_all()
     }
 
     /// Returns all proposal ids waiting for activation height.
@@ -207,112 +82,54 @@ impl Update<'_> {
         Ok(())
     }
 
-    /// Allocates a new proposal id and persists all proposal fields.
-    pub fn write_proposal(
+    /// Persists a pending scheduled update and indexes it for activation.
+    pub fn write_scheduled_update(
         &mut self,
+        proposal_id: U256,
         version: ProtocolVersion,
         activation_height: u64,
-        voting_deadline_height: u64,
         info: &[u8],
-        proposer: Address,
-        proposed_at_height: u64,
-        status: ProposalStatus,
-    ) -> Result<U256> {
-        let proposal_id = self.peek_next_proposal_id()?;
-        self.proposal_count.write(proposal_id)?;
-
-        let record = ProposalRecord {
-            id: proposal_id,
-            proposer,
-            proposed_at_height,
-            activation_height,
-            voting_deadline_height,
-            status: status.to_u8(),
-            yes_votes: 0,
-            no_votes: 0,
-            version,
-            info: info.to_vec(),
-        };
-        self.proposals.create(&record)?;
-
-        if status == ProposalStatus::Pending {
-            self.pending_proposal_ids.push(proposal_id)?;
-        }
-
-        Ok(proposal_id)
-    }
-
-    /// Persists a vote and increments the proposal's yes/no counters.
-    pub fn write_vote(
-        &mut self,
-        proposal_id: U256,
-        voter: Address,
-        kind: VoteKind,
-        block_number: u64,
     ) -> Result<()> {
-        let key = vote_key(proposal_id, voter);
-        self.votes.create(&VoteRecord {
-            vote_key: key,
-            voter,
-            vote_kind: kind.to_u8(),
-            block_number,
-        })?;
-
-        let mut proposal = self
-            .proposals
-            .get(proposal_id)?
-            .ok_or(UpdateError::ProposalNotFound)?;
-        match kind {
-            VoteKind::Yes => proposal.yes_votes += 1,
-            VoteKind::No => proposal.no_votes += 1,
+        if proposal_id.is_zero() {
+            return Err(UpdateError::InvalidPayload.into());
         }
-        self.proposals.update(&proposal)?;
+
+        let record = ScheduledUpdateRecord {
+            proposal_id,
+            version,
+            activation_height,
+            info: info.to_vec(),
+            status: ScheduledUpdateStatus::Pending.to_u8(),
+        };
+        self.scheduled_updates.create(&record)?;
+        self.waiting_for_activation_proposal_ids.push(proposal_id)?;
         Ok(())
     }
 
-    /// Updates proposal status and moves lifecycle indexes when needed.
-    pub fn set_proposal_status(
+    /// Updates scheduled update status and moves lifecycle indexes when needed.
+    pub fn set_scheduled_update_status(
         &mut self,
         proposal_id: U256,
-        new_status: ProposalStatus,
+        new_status: ScheduledUpdateStatus,
     ) -> Result<()> {
-        let mut proposal = self
-            .proposals
+        let mut record = self
+            .scheduled_updates
             .get(proposal_id)?
-            .ok_or(UpdateError::ProposalNotFound)?;
-        let old_status = proposal.proposal_status()?;
+            .ok_or(UpdateError::ScheduledUpdateNotFound)?;
+        let old_status = record.scheduled_update_status()?;
 
-        // Skip update in case of no change
         if old_status == new_status {
-            warn!("proposal status is already {old_status:?} for proposal {proposal_id}");
+            warn!("scheduled update status is already {old_status:?} for proposal {proposal_id}");
             return Ok(());
         }
-        proposal.set_proposal_status(new_status);
-        self.proposals.update(&proposal)?;
 
-        match old_status {
-            ProposalStatus::Pending => {
-                self.remove_pending_proposal_id(proposal_id)?;
-            }
-            ProposalStatus::Approved => {
-                self.remove_waiting_for_activation_proposal_id(proposal_id)?;
-            }
-            _ => {}
-        }
-        match new_status {
-            ProposalStatus::Pending => {
-                self.pending_proposal_ids.push(proposal_id)?;
-            }
-            ProposalStatus::Approved => {
-                self.waiting_for_activation_proposal_ids.push(proposal_id)?;
-            }
-            _ => {}
+        record.set_scheduled_update_status(new_status);
+        self.scheduled_updates.update(&record)?;
+
+        if old_status == ScheduledUpdateStatus::Pending {
+            self.remove_waiting_for_activation_proposal_id(proposal_id)?;
         }
         Ok(())
-    }
-
-    fn remove_pending_proposal_id(&mut self, proposal_id: U256) -> Result<()> {
-        Self::remove_proposal_id_from_list(&mut self.pending_proposal_ids, proposal_id)
     }
 
     fn remove_waiting_for_activation_proposal_id(&mut self, proposal_id: U256) -> Result<()> {

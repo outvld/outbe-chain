@@ -2,7 +2,7 @@
 
 use crate::constants::PROTOCOL_VERSION;
 use crate::handlers::UpgradeHandlerRegistry;
-use crate::state::ProposalInfo;
+use crate::state::ScheduledUpdateInfo;
 use crate::version::format_protocol_version;
 use crate::ProtocolVersion;
 
@@ -17,18 +17,18 @@ pub fn assert_binary_protocol_compatible(active_version: ProtocolVersion) -> Res
     Err(format_binary_mismatch(PROTOCOL_VERSION, active_version))
 }
 
-/// Emits warnings for approved future proposals whose version has no handler entry.
-pub fn warn_missing_handlers_for_waiting_proposals(
-    waiting: &[ProposalInfo],
+/// Emits warnings for scheduled updates whose version has no handler entry.
+pub fn warn_missing_handlers_for_waiting_updates(
+    waiting: &[ScheduledUpdateInfo],
     registry: &UpgradeHandlerRegistry,
 ) {
-    for proposal in waiting {
-        if registry.lookup(proposal.version).is_none() {
+    for scheduled in waiting {
+        if registry.lookup(scheduled.version).is_none() {
             tracing::warn!(
-                proposal_id = %proposal.id,
-                version = %format_protocol_version(proposal.version),
-                activation_height = proposal.activation_height,
-                "approved upgrade proposal has no registered migration handler; version-only activation is valid"
+                proposal_id = %scheduled.proposal_id,
+                version = %format_protocol_version(scheduled.version),
+                activation_height = scheduled.activation_height,
+                "scheduled upgrade has no registered migration handler; version-only activation is valid"
             );
         }
     }

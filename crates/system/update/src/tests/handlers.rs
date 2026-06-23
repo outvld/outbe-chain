@@ -1,33 +1,38 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use alloy_primitives::U256;
 use alloy_sol_types::SolEvent;
 use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::{PrecompileError, Result};
 
 use crate::api::get_active_version;
 use crate::handlers::{UpgradeHandlerRegistry, UpgradeHandlerSpec, EMPTY_UPGRADE_HANDLER_REGISTRY};
+use crate::schema::ScheduledUpdateStatus;
 use crate::schema::Update;
-use crate::state::{ProposalInfo, ProposalStatus};
+use crate::state::ScheduledUpdateInfo;
 
-use super::{
-    block_ctx, event_count, min_activation, with_update, with_update_provider, UpdateTestExt,
-    PROPOSER, V1_2, VOTER_A, VOTER_B,
-};
+use super::{block_ctx, min_activation, schedule_update, with_update, with_update_provider, V1_2};
 
 static REGISTERED_HANDLER_CALLS: AtomicUsize = AtomicUsize::new(0);
 static REPLAY_HANDLER_CALLS: AtomicUsize = AtomicUsize::new(0);
 
-fn registered_counting_handler(_ctx: &BlockRuntimeContext, _proposal: &ProposalInfo) -> Result<()> {
+fn registered_counting_handler(
+    _ctx: &BlockRuntimeContext,
+    _scheduled: &ScheduledUpdateInfo,
+) -> Result<()> {
     REGISTERED_HANDLER_CALLS.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }
 
-fn replay_counting_handler(_ctx: &BlockRuntimeContext, _proposal: &ProposalInfo) -> Result<()> {
+fn replay_counting_handler(
+    _ctx: &BlockRuntimeContext,
+    _scheduled: &ScheduledUpdateInfo,
+) -> Result<()> {
     REPLAY_HANDLER_CALLS.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }
 
-fn failing_handler(_ctx: &BlockRuntimeContext, _proposal: &ProposalInfo) -> Result<()> {
+fn failing_handler(_ctx: &BlockRuntimeContext, _scheduled: &ScheduledUpdateInfo) -> Result<()> {
     Err(PrecompileError::Fatal("handler failed".into()))
 }
 
@@ -58,40 +63,14 @@ static REPLAY_HANDLER_REGISTRY: UpgradeHandlerRegistry =
 static FAILING_HANDLER_REGISTRY: UpgradeHandlerRegistry =
     UpgradeHandlerRegistry::new(&[FAILING_HANDLER_SPEC]);
 
-fn approve_and_wait_for_activation(
-    update: &mut Update<'_>,
-    proposal_id: alloy_primitives::U256,
-    current: u64,
-) {
-    update
-        .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
-        .unwrap();
-    update
-        .cast_vote_approve(proposal_id, VOTER_B, true, current + 2)
-        .unwrap();
-
-    let deadline = update
-        .read_proposal(proposal_id)
-        .unwrap()
-        .unwrap()
-        .voting_deadline_height;
-    update.process_begin_block_test(deadline + 1).unwrap();
-    assert_eq!(
-        update.read_proposal(proposal_id).unwrap().unwrap().status,
-        ProposalStatus::Approved
-    );
-}
-
 #[test]
 fn activation_without_handler_succeeds() {
     with_update(|storage| {
         let mut update = Update::new(storage.clone());
         let current = 100u64;
         let activation = min_activation(current);
-        let proposal_id = update
-            .create_proposal(PROPOSER, V1_2, activation, b"", current)
-            .unwrap();
-        approve_and_wait_for_activation(&mut update, proposal_id, current);
+        let proposal_id = U256::from(1);
+        schedule_update(&mut update, proposal_id, V1_2, activation, b"", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         update
@@ -99,8 +78,12 @@ fn activation_without_handler_succeeds() {
             .unwrap();
 
         assert_eq!(
-            update.read_proposal(proposal_id).unwrap().unwrap().status,
-            ProposalStatus::Activated
+            update
+                .read_scheduled_update(proposal_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            ScheduledUpdateStatus::Activated
         );
         assert_eq!(get_active_version(storage).unwrap(), Some(V1_2));
     });
@@ -113,10 +96,8 @@ fn registered_handler_is_called_before_activation() {
         let mut update = Update::new(storage.clone());
         let current = 100u64;
         let activation = min_activation(current);
-        let proposal_id = update
-            .create_proposal(PROPOSER, V1_2, activation, b"", current)
-            .unwrap();
-        approve_and_wait_for_activation(&mut update, proposal_id, current);
+        let proposal_id = U256::from(1);
+        schedule_update(&mut update, proposal_id, V1_2, activation, b"", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         update
@@ -125,23 +106,25 @@ fn registered_handler_is_called_before_activation() {
 
         assert_eq!(REGISTERED_HANDLER_CALLS.load(Ordering::SeqCst), 1);
         assert_eq!(
-            update.read_proposal(proposal_id).unwrap().unwrap().status,
-            ProposalStatus::Activated
+            update
+                .read_scheduled_update(proposal_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            ScheduledUpdateStatus::Activated
         );
         assert_eq!(get_active_version(storage).unwrap(), Some(V1_2));
     });
 }
 
 #[test]
-fn handler_failure_is_fatal_and_leaves_proposal_unactivated() {
+fn handler_failure_is_fatal_and_leaves_update_unactivated() {
     with_update(|storage| {
         let mut update = Update::new(storage.clone());
         let current = 100u64;
         let activation = min_activation(current);
-        let proposal_id = update
-            .create_proposal(PROPOSER, V1_2, activation, b"", current)
-            .unwrap();
-        approve_and_wait_for_activation(&mut update, proposal_id, current);
+        let proposal_id = U256::from(1);
+        schedule_update(&mut update, proposal_id, V1_2, activation, b"", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         let err = update
@@ -153,24 +136,26 @@ fn handler_failure_is_fatal_and_leaves_proposal_unactivated() {
         ));
 
         assert_eq!(
-            update.read_proposal(proposal_id).unwrap().unwrap().status,
-            ProposalStatus::Approved
+            update
+                .read_scheduled_update(proposal_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            ScheduledUpdateStatus::Pending
         );
         assert_ne!(get_active_version(storage).unwrap(), Some(V1_2));
     });
 }
 
 #[test]
-fn activated_proposal_does_not_reinvoke_handler_on_replay() {
+fn activated_update_does_not_reinvoke_handler_on_replay() {
     REPLAY_HANDLER_CALLS.store(0, Ordering::SeqCst);
     let provider = with_update_provider(|storage| {
         let mut update = Update::new(storage.clone());
         let current = 100u64;
         let activation = min_activation(current);
-        let proposal_id = update
-            .create_proposal(PROPOSER, V1_2, activation, b"", current)
-            .unwrap();
-        approve_and_wait_for_activation(&mut update, proposal_id, current);
+        let proposal_id = U256::from(1);
+        schedule_update(&mut update, proposal_id, V1_2, activation, b"", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         update
@@ -189,4 +174,16 @@ fn activated_proposal_does_not_reinvoke_handler_on_replay() {
         ),
         1
     );
+}
+
+fn event_count(
+    provider: &outbe_primitives::storage::hashmap::HashMapStorageProvider,
+    topic0: alloy_primitives::B256,
+) -> usize {
+    use outbe_primitives::addresses::UPDATE_ADDRESS;
+    provider
+        .get_events(UPDATE_ADDRESS)
+        .iter()
+        .filter(|log| log.topics().first() == Some(&topic0))
+        .count()
 }

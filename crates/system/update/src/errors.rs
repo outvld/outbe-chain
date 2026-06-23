@@ -1,34 +1,24 @@
 use outbe_primitives::error::PrecompileError;
 
-/// Module-local errors for upgrade governance storage/runtime.
+/// Module-local errors for upgrade storage/runtime.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum UpdateError {
-    #[error("caller is not an active validator")]
-    NotValidator,
-    #[error("proposal not found")]
-    ProposalNotFound,
-    #[error("validator already voted on this proposal")]
-    AlreadyVoted,
-    #[error("voting window closed")]
-    VotingClosed,
-    #[error("activation height should be 86400 blocks from current height (1 day)")]
+    #[error("scheduled update not found")]
+    ScheduledUpdateNotFound,
+    #[error("scheduled update already exists for proposal id")]
+    ScheduledUpdateAlreadyExists,
+    #[error("activation height must be at least current height + MIN_ACTIVATION_BUFFER")]
     HeightInPast,
     #[error("invalid protocol version; expected non-zero u32 encoded as u8 major + u24 minor")]
     InvalidVersion,
     #[error("downgrade not allowed: new version must be greater than active version")]
     DowngradeNotAllowed,
-    #[error("proposal is not pending")]
-    NotPending,
-    #[error("only the proposer may cancel this proposal")]
-    NotProposer,
-    #[error("msg.value must be zero")]
-    NonZeroValue,
-    #[error("too many pending proposals")]
-    TooManyPending,
-    #[error("invalid vote kind; expected 0=No or 1=Yes")]
-    InvalidVoteKind,
-    #[error("invalid proposal status")]
-    InvalidProposalStatus,
+    #[error("invalid governance payload")]
+    InvalidPayload,
+    #[error("another scheduled update already uses this activation height")]
+    ActivationConflict,
+    #[error("invalid scheduled update status")]
+    InvalidScheduledUpdateStatus,
 }
 
 impl From<UpdateError> for PrecompileError {

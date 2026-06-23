@@ -5,11 +5,11 @@
 use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::Result;
 
-use crate::state::ProposalInfo;
+use crate::state::ScheduledUpdateInfo;
 use crate::ProtocolVersion;
 
-/// Migration invoked when an approved proposal reaches its activation height.
-pub type UpgradeHandler = fn(&BlockRuntimeContext, &ProposalInfo) -> Result<()>;
+/// Migration invoked when a scheduled update reaches its activation height.
+pub type UpgradeHandler = fn(&BlockRuntimeContext, &ScheduledUpdateInfo) -> Result<()>;
 
 /// Static registration entry for one protocol version migration.
 #[derive(Clone, Copy)]
@@ -27,7 +27,7 @@ pub struct UpgradeHandlerRegistry {
 }
 
 impl UpgradeHandlerRegistry {
-    /// Builds a registry from a static handler slice.
+    /// Builds a registry from a static handler table.
     pub const fn new(handlers: &'static [UpgradeHandlerSpec]) -> Self {
         Self { handlers }
     }
