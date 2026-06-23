@@ -93,6 +93,12 @@ impl<'storage, K: StorageKey, V: Storable> Map<'storage, K, V> {
     }
 }
 
+impl<'storage, K: StorageKey, T: Storable> Map<'storage, K, StorageVec<'storage, T>> {
+    pub fn list(&self, key: &K) -> StorageVec<'storage, T> {
+        StorageVec::new(key.mapping_slot(self.base_slot), self.address, self.storage.clone())
+    }
+}
+
 impl<'storage, K, V> Map<'storage, K, V>
 where
     K: StorageKey + Clone,
@@ -283,5 +289,26 @@ mod tests {
         assert_eq!(field.read().unwrap(), Some(42));
         field.delete().unwrap();
         assert_eq!(field.read().unwrap(), None);
+    }
+
+    #[test]
+    fn map_list_accesses_independent_lists() {
+        let mut provider = HashMapStorageProvider::new(1);
+        let storage = StorageHandle::new(&mut provider);
+        let map: Map<'_, U256, StorageVec<'_, u64>> = Map::new(
+            U256::from(7u64),
+            address!("0x0000000000000000000000000000000000001003"),
+            storage,
+        );
+
+        let first = map.list(&U256::from(1u64));
+        let second = map.list(&U256::from(2u64));
+
+        first.push(10).unwrap();
+        first.push(20).unwrap();
+        second.push(30).unwrap();
+
+        assert_eq!(first.read_all().unwrap(), vec![10, 20]);
+        assert_eq!(second.read_all().unwrap(), vec![30]);
     }
 }
