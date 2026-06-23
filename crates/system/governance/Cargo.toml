@@ -1,0 +1,15 @@
+[package]
+name = "outbe-governance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+outbe-macros.workspace = true
+outbe-primitives.workspace = true
+outbe-validatorset.workspace = true
+alloy-primitives.workspace = true
+alloy-sol-types.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
