@@ -263,7 +263,16 @@ fn storage_type_with_lifetime(ty: &Type) -> proc_macro2::TokenStream {
         }
         "Map" => {
             let args = type_args(ty).unwrap_or_default();
-            quote! { ::outbe_primitives::storage::dsl::Map<'storage, #(#args),*> }
+            if args.len() == 2 {
+                let key = &args[0];
+                let value = match &args[1] {
+                    GenericArgument::Type(inner) => storage_type_with_lifetime(inner),
+                    other => quote! { #other },
+                };
+                quote! { ::outbe_primitives::storage::dsl::Map<'storage, #key, #value> }
+            } else {
+                quote! { ::outbe_primitives::storage::dsl::Map<'storage, #(#args),*> }
+            }
         }
         "List" => {
             let inner = unwrap_single_generic_type(ty).unwrap();
@@ -307,7 +316,7 @@ fn contract_slot_count_expr(ty: &Type) -> proc_macro2::TokenStream {
     if is_dsl_map_type(ty) {
         let args = type_args(ty).unwrap_or_default();
         if let Some(GenericArgument::Type(value_ty)) = args.get(1) {
-            if is_scalar_like_type(value_ty) {
+            if is_scalar_like_type(value_ty) || is_dsl_list_type(value_ty) {
                 quote! { 1u64 }
             } else {
                 quote! { <#value_ty as ::outbe_primitives::storage::dsl::StorageRecord>::SLOTS as u64 }
