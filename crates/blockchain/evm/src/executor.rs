@@ -399,8 +399,9 @@ where
 /// against `HashMapStorageProvider`. Ordering is load-bearing:
 ///
 /// 1. Genesis-state validation (blocks 0/1 only, if consensus config was supplied).
-/// 2. `UpdateLifecycle::begin_block_with_handlers` — tally expired proposals and activate approved ones.
-/// 3. `RewardsLifecycle::begin_block` — locks in `genesis_utc_day` on
+/// 2. `GovernanceLifecycle::begin_block` — tally expired proposals and dispatch approved ones.
+/// 3. `UpdateLifecycle::begin_block_with_handlers` — activate scheduled updates at activation height.
+/// 4. `RewardsLifecycle::begin_block` — locks in `genesis_utc_day` on
 ///    block 0; the per-block emission and per-day settle paths have
 ///    moved to the Cycle module.
 /// 3. Validator-set epoch boundary: reset slash indicator counters, transition
@@ -430,6 +431,10 @@ pub fn run_outbe_pre_execution_hooks(
         }
     }
 
+    // Governance: tally expired proposals and dispatch approved ones.
+    <outbe_governance::lifecycle::GovernanceLifecycle as BlockLifecycle>::begin_block(hook_ctx)?;
+
+    // Update: activate scheduled updates at activation height.
     outbe_update::lifecycle::UpdateLifecycle::begin_block_with_handlers(
         hook_ctx,
         crate::upgrade_handlers::registry(),

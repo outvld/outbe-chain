@@ -15,7 +15,8 @@ use core::fmt::Debug;
 use core::marker::PhantomData;
 use outbe_primitives::addresses::{
     AGENT_REWARD_ADDRESS, CREDIS_ADDRESS, CREDIS_FACTORY_ADDRESS, DEBUG_SUBCALL_PRECOMPILE_ADDRESS,
-    DESIS_ADDRESS, FIDELITY_ADDRESS, GEM_ADDRESS, GEM_FACTORY_ADDRESS, GRATIS_ADDRESS,
+    DESIS_ADDRESS, FIDELITY_ADDRESS, GEM_ADDRESS, GEM_FACTORY_ADDRESS, GOVERNANCE_ADDRESS,
+    GRATIS_ADDRESS,
     GRATIS_FACTORY_ADDRESS, GRATIS_POOL_ADDRESS, INTEX_ADDRESS, INTEX_FACTORY_ADDRESS,
     METADOSIS_ADDRESS, NOD_ADDRESS, NOD_FACTORY_ADDRESS, ORACLE_ADDRESS, OUTBE_SYSTEM_TX_ADDRESS,
     PROMIS_ADDRESS, PROMIS_FACTORY_ADDRESS, PROMIS_LIMIT_ADDRESS, REWARDS_ADDRESS,
@@ -207,6 +208,11 @@ fn outbe_dispatch_fn(address: &Address) -> Option<(&'static str, DispatchFn, Bas
             outbe_teeregistry::precompile::dispatch,
             default_base_gas,
         ),
+        a if a == GOVERNANCE_ADDRESS => (
+            "governance",
+            outbe_governance::precompile::dispatch,
+            default_base_gas,
+        ),
         a if a == UPDATE_ADDRESS => (
             "update",
             outbe_update::precompile::dispatch,
@@ -305,6 +311,7 @@ pub fn outbe_precompile_addresses() -> &'static [Address] {
         ZKPROOF_POSEIDON_ADDRESS,
         ZKPROOF_GROTH16_ADDRESS,
         TEE_REGISTRY_ADDRESS,
+        GOVERNANCE_ADDRESS,
         UPDATE_ADDRESS,
     ]
 }

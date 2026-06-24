@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, B256, U256};
 use outbe_primitives::block::BlockRuntimeContext;
-use outbe_primitives::error::Result;
+use outbe_primitives::error::{PrecompileError, Result};
 use outbe_primitives::storage::StorageHandle;
 use outbe_validatorset::contract::ValidatorSet;
 use outbe_validatorset::logic::status;
@@ -9,8 +9,10 @@ use crate::constants::{
     MAX_PENDING_PROPOSALS, QUORUM_DENOMINATOR, QUORUM_NUMERATOR, VOTING_WINDOW_BLOCKS,
 };
 use crate::errors::GovernanceError;
+use crate::precompile::IGovernance;
 use crate::schema::Governance;
 use crate::state::{active_validator_addresses, calculate_vote_tally, ProposalStatus, VoteKind};
+use crate::targets;
 
 /// Returns `Ok(())` when `caller` is a registered validator with `status == ACTIVE`.
 pub fn ensure_active_validator(storage: StorageHandle<'_>, caller: Address) -> Result<()> {
@@ -106,13 +108,13 @@ impl Governance<'_> {
             if proposal.proposal_status()? == ProposalStatus::Pending
                 && block_number > proposal.voting_deadline_height
             {
-                self.finalize_voting(proposal_id)?;
+                self.finalize_voting(ctx, proposal_id)?;
             }
         }
         Ok(())
     }
 
-    fn finalize_voting(&mut self, proposal_id: U256) -> Result<()> {
+    fn finalize_voting(&mut self, ctx: &BlockRuntimeContext, proposal_id: U256) -> Result<()> {
         let proposal = self
             .proposals
             .get(proposal_id)?
@@ -125,10 +127,37 @@ impl Governance<'_> {
         let tally = calculate_vote_tally(self, &proposal, &active)?;
         let vs = ValidatorSet::new(self.storage.clone());
         let active_count = vs.active_validator_count()?;
+        let vote_tally = IGovernance::VoteTally {
+            yes: tally.yes,
+            no: tally.no,
+        };
+
         if quorum_reached(tally.yes, active_count) {
-            self.set_proposal_status(proposal_id, ProposalStatus::Approved)
+            match targets::dispatch_approved_proposal(ctx, proposal_id, &proposal) {
+                Ok(()) => {
+                    self.set_proposal_status(proposal_id, ProposalStatus::Approved)?;
+                    self.emit(IGovernance::ProposalApproved {
+                        proposalId: proposal_id,
+                        state: vote_tally,
+                    })?;
+                }
+                Err(PrecompileError::Revert(_)) => {
+                    self.set_proposal_status(proposal_id, ProposalStatus::Rejected)?;
+                    self.emit(IGovernance::ProposalRejected {
+                        proposalId: proposal_id,
+                        state: vote_tally,
+                        conflictingproposalId: U256::ZERO,
+                    })?;
+                }
+                Err(err) => return Err(err),
+            }
         } else {
-            self.set_proposal_status(proposal_id, ProposalStatus::Expired)
+            self.set_proposal_status(proposal_id, ProposalStatus::Expired)?;
+            self.emit(IGovernance::ProposalExpired {
+                proposalId: proposal_id,
+                state: vote_tally,
+            })?;
         }
+        Ok(())
     }
 }

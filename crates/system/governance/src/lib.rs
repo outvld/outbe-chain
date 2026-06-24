@@ -17,8 +17,8 @@ pub mod precompile;
 pub mod runtime;
 pub mod schema;
 pub mod state;
+pub mod targets;
 
-pub use precompile::GOVERNANCE_ABI_PATH;
 pub use schema::Governance;
 pub use state::{
     active_validator_addresses, calculate_vote_tally, ProposalInfo, ProposalStatus, VoteInfo,

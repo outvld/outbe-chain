@@ -19,6 +19,10 @@ pub enum GovernanceError {
     InvalidProposalStatus,
     #[error("invalid vote kind")]
     InvalidVoteKind,
+    #[error("unknown governance target module")]
+    UnknownTargetModule,
+    #[error("unknown governance action")]
+    UnknownAction,
 }
 
 impl From<GovernanceError> for PrecompileError {

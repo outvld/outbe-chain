@@ -1,4 +1,4 @@
-use alloy_primitives::{address, Address, B256, U256};
+use alloy_primitives::{address, Address, U256};
 
 use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
 use outbe_primitives::error::{PrecompileError, Result};
@@ -7,19 +7,26 @@ use outbe_primitives::storage::StorageHandle;
 use outbe_validatorset::contract::ValidatorSet;
 
 use crate::api::{get_proposal, get_proposal_voters, list_proposals, list_proposals_by_status};
+use outbe_update::constants::MIN_ACTIVATION_BUFFER;
+use outbe_update::encode_protocol_version;
+use outbe_update::payload::encode_scheduled_update_payload;
+
 use crate::constants::VOTING_WINDOW_BLOCKS;
 use crate::runtime::quorum_reached;
 use crate::schema::Governance;
 use crate::schema::ProposalStatus;
 use crate::state::{calculate_vote_tally, vote_key, VoteKind, VoteTally};
 
-const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
-const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
-const VOTER_B: Address = address!("0x3333333333333333333333333333333333333333");
-const VALIDATOR_OWNER: Address = address!("0xffffffffffffffffffffffffffffffffffffffff");
+use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
-const TARGET_MODULE: B256 = B256::ZERO;
-const ACTION: B256 = B256::new([0xAB; 32]);
+pub(super) const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
+pub(super) const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
+pub(super) const VOTER_B: Address = address!("0x3333333333333333333333333333333333333333");
+pub(super) const VALIDATOR_OWNER: Address =
+    address!("0xffffffffffffffffffffffffffffffffffffffff");
+
+mod dispatch;
+mod precompile;
 
 fn dummy_pubkey(seed: u8) -> [u8; 48] {
     let mut pk = [0u8; 48];
@@ -27,7 +34,7 @@ fn dummy_pubkey(seed: u8) -> [u8; 48] {
     pk
 }
 
-fn register_active_validator(storage: StorageHandle, addr: Address, seed: u8) {
+pub(super) fn register_active_validator(storage: StorageHandle, addr: Address, seed: u8) {
     let mut vs = ValidatorSet::new(storage.clone());
     vs.config_owner.write(VALIDATOR_OWNER).unwrap();
     vs.config_max_validators.write(100).unwrap();
@@ -36,13 +43,13 @@ fn register_active_validator(storage: StorageHandle, addr: Address, seed: u8) {
     vs.activate_validator(addr).unwrap();
 }
 
-fn setup_default_validators(storage: StorageHandle) {
+pub(super) fn setup_default_validators(storage: StorageHandle) {
     register_active_validator(storage.clone(), PROPOSER, 1);
     register_active_validator(storage.clone(), VOTER_A, 2);
     register_active_validator(storage.clone(), VOTER_B, 3);
 }
 
-fn with_governance<F: FnOnce(StorageHandle)>(f: F) {
+pub(super) fn with_governance<F: FnOnce(StorageHandle)>(f: F) {
     let mut provider = HashMapStorageProvider::new(1);
     let storage = StorageHandle::new(&mut provider);
     setup_default_validators(storage.clone());
@@ -53,7 +60,7 @@ fn block_ctx(storage: StorageHandle, block_number: u64) -> BlockRuntimeContext {
     BlockRuntimeContext::new(BlockContext::empty_for_tests(block_number, 0, 1), storage)
 }
 
-trait GovernanceTestExt {
+pub(super) trait GovernanceTestExt {
     fn process_begin_block_test(&mut self, block_number: u64) -> Result<()>;
 }
 
@@ -114,7 +121,7 @@ fn write_vote_appends_ordered_voters() {
         let mut governance = Governance::new(storage.clone());
         let current = 10u64;
         let proposal_id = governance
-            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"payload", current)
+            .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"payload", current)
             .unwrap();
 
         governance
@@ -152,7 +159,7 @@ fn duplicate_vote_is_rejected() {
         let mut governance = Governance::new(storage.clone());
         let current = 20u64;
         let proposal_id = governance
-            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"", current)
             .unwrap();
 
         governance
@@ -180,7 +187,7 @@ fn get_proposal_voters_pagination_is_deterministic() {
         let mut governance = Governance::new(storage.clone());
         let current = 30u64;
         let proposal_id = governance
-            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"", current)
             .unwrap();
 
         governance
@@ -219,7 +226,7 @@ fn get_proposal_uses_active_set_at_read_time() {
         let mut governance = Governance::new(storage.clone());
         let current = 40u64;
         let proposal_id = governance
-            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"", current)
             .unwrap();
 
         governance
@@ -250,8 +257,18 @@ fn inactive_voter_is_ignored_at_deadline_tally() {
     with_governance(|storage| {
         let mut governance = Governance::new(storage.clone());
         let current = 100u64;
+        let deadline = current + VOTING_WINDOW_BLOCKS + 1;
+        let version = encode_protocol_version(1, 2);
+        let activation = deadline.saturating_add(MIN_ACTIVATION_BUFFER);
+        let payload = encode_scheduled_update_payload(version, activation, b"");
         let proposal_id = governance
-            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .create_proposal(
+                PROPOSER,
+                UPDATE_TARGET_MODULE,
+                SCHEDULE_UPDATE_ACTION,
+                &payload,
+                current,
+            )
             .unwrap();
 
         governance
@@ -291,7 +308,7 @@ fn deadline_quorum_requires_two_thirds_of_active_set() {
         let mut governance = Governance::new(storage.clone());
         let current = 200u64;
         let proposal_id = governance
-            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"", current)
+            .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"", current)
             .unwrap();
 
         governance
@@ -312,10 +329,10 @@ fn list_proposals_and_by_status_are_paginated() {
         let mut governance = Governance::new(storage.clone());
         let current = 300u64;
         let first = governance
-            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"one", current)
+            .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"one", current)
             .unwrap();
         let second = governance
-            .create_proposal(PROPOSER, TARGET_MODULE, ACTION, b"two", current + 1)
+            .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"two", current + 1)
             .unwrap();
 
         assert_eq!(

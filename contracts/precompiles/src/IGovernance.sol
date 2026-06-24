@@ -17,19 +17,19 @@ interface IGovernance {
     }
 
     struct ProposalInfo {
-        uint256 proposalId,
-        address proposer,
-        bytes32 targetModule,
-        bytes32 action,
-        bytes memory payload,
-        uint64 createdHeight,
-        uint64 votingDeadlineHeight,
-        ProposalStatus status,
+        uint256 proposalId;
+        address proposer;
+        bytes32 targetModule;
+        bytes32 action;
+        bytes payload;
+        uint64 createdHeight;
+        uint64 votingDeadlineHeight;
+        ProposalStatus status;
         /// @notice Results of voting (if it would have been calculated now).
         /// The actual state may differ, e.g. if validator set changes before voting deadline.
-        VoteTally state,
+        VoteTally state;
         /// @dev The full list of voters is not transmitted, and can be retrieved using `getProposalVoters`.
-        uint256 votersCount,
+        uint256 votersCount;
     }
 
     /// @notice New proposal was created.
@@ -55,8 +55,7 @@ interface IGovernance {
     event ProposalCancelled(uint256 indexed proposalId, address indexed proposer);
 
     /// @notice Proposal was approved by majority (2/3).
-    event ProposalApproved(uint256 indexed proposalId, VoteTally state, uint64 activationHeight, uint32 version);
-
+    event ProposalApproved(uint256 indexed proposalId, VoteTally state);
 
     /// @notice Creates a generic governance proposal.
     /// @param targetModule Target system module identifier.

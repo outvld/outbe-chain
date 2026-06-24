@@ -27,6 +27,7 @@ outbe-credisfactory.workspace = true
 outbe-tributefactory.workspace = true
 outbe-teeregistry.workspace = true
 outbe-tee.workspace = true
+outbe-governance.workspace = true
 outbe-update.workspace = true
 outbe-agentreward.workspace = true
 outbe-metadosis.workspace = true
@@ -55,7 +56,12 @@ hex.workspace = true
 revm.workspace = true
 
 # Reth
-reth-ethereum = { workspace = true, features = ["evm", "node", "node-api", "cli"] }
+reth-ethereum = { workspace = true, features = [
+    "evm",
+    "node",
+    "node-api",
+    "cli",
+] }
 reth-evm.workspace = true
 reth-provider.workspace = true
 reth-primitives-traits.workspace = true
