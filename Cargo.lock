@@ -6741,6 +6741,7 @@ dependencies = [
  "hex",
  "k256 0.13.4",
  "outbe-common",
+ "outbe-governance",
  "outbe-primitives",
  "outbe-rpc",
  "outbe-tee",

@@ -3,7 +3,7 @@
 use alloy_primitives::{address, Address};
 use alloy_sol_types::sol;
 
-pub use outbe_primitives::addresses::UPDATE_ADDRESS;
+pub use outbe_primitives::addresses::GOVERNANCE_ADDRESS;
 
 // Precompile contract addresses
 pub const VALIDATOR_SET_ADDR: Address = address!("0x000000000000000000000000000000000000EE00");
@@ -263,6 +263,11 @@ sol! {
 sol!(
     #![sol(alloy_sol_types = alloy_sol_types, extra_derives(Debug, PartialEq))]
     "../../contracts/precompiles/src/IUpdate.sol"
+);
+
+sol!(
+    #![sol(alloy_sol_types = alloy_sol_types, extra_derives(Debug, PartialEq))]
+    "../../contracts/precompiles/src/IGovernance.sol"
 );
 
 pub const ORACLE_ADDR: Address = address!("0x000000000000000000000000000000000000EE05");

@@ -148,24 +148,12 @@ pub struct FinalizationProof {
     /// Hex of the `commonware_codec::Encode` finalized `ConsensusBlock`.
     pub block_hex: String,
 }
-/// Lifecycle status of an upgrade proposal.
+/// Lifecycle status of a scheduled update (`IUpdate.ScheduledUpdateStatus`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum UpdateProposalStatus {
+pub enum UpdateScheduledUpdateStatus {
     Pending,
-    Approved,
-    Rejected,
-    Expired,
     Activated,
-    Cancelled,
-}
-
-/// Yes/no vote counters for an upgrade proposal.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateVoteTallyInfo {
-    pub yes: u64,
-    pub no: u64,
 }
 
 /// Active on-chain protocol version.
@@ -178,80 +166,38 @@ pub struct UpdateActiveVersionInfo {
     pub activation_height: u64,
 }
 
-/// Upgrade proposal details.
+/// Scheduled update details (`IUpdate.ScheduledUpdate`).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UpdateProposalInfo {
+pub struct UpdateScheduledUpdateInfo {
     pub proposal_id: U256,
-    pub proposer: Address,
-    pub proposed_at_height: u64,
-    pub activation_height: u64,
-    pub voting_deadline_height: u64,
     pub version: u32,
     pub major: u8,
     pub minor: u32,
+    pub activation_height: u64,
     pub info: String,
-    pub status: UpdateProposalStatus,
-    pub state: UpdateVoteTallyInfo,
+    pub status: UpdateScheduledUpdateStatus,
 }
 
-/// Point lookup for a validator vote on a proposal.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateVoteInfo {
-    pub proposal_id: U256,
-    pub voter: Address,
-    pub approve: bool,
-    pub block_number: u64,
-}
-
-impl From<outbe_update::state::ProposalStatus> for UpdateProposalStatus {
-    fn from(status: outbe_update::state::ProposalStatus) -> Self {
+impl From<outbe_update::state::ScheduledUpdateStatus> for UpdateScheduledUpdateStatus {
+    fn from(status: outbe_update::state::ScheduledUpdateStatus) -> Self {
         match status {
-            outbe_update::state::ProposalStatus::Pending => Self::Pending,
-            outbe_update::state::ProposalStatus::Approved => Self::Approved,
-            outbe_update::state::ProposalStatus::Rejected => Self::Rejected,
-            outbe_update::state::ProposalStatus::Expired => Self::Expired,
-            outbe_update::state::ProposalStatus::Activated => Self::Activated,
-            outbe_update::state::ProposalStatus::Cancelled => Self::Cancelled,
+            outbe_update::state::ScheduledUpdateStatus::Pending => Self::Pending,
+            outbe_update::state::ScheduledUpdateStatus::Activated => Self::Activated,
         }
     }
 }
 
-impl From<&outbe_update::state::ProposalInfo> for UpdateVoteTallyInfo {
-    fn from(proposal: &outbe_update::state::ProposalInfo) -> Self {
+impl From<outbe_update::ScheduledUpdateInfo> for UpdateScheduledUpdateInfo {
+    fn from(scheduled: outbe_update::ScheduledUpdateInfo) -> Self {
         Self {
-            yes: proposal.yes_votes,
-            no: proposal.no_votes,
-        }
-    }
-}
-
-impl From<outbe_update::state::ProposalInfo> for UpdateProposalInfo {
-    fn from(proposal: outbe_update::state::ProposalInfo) -> Self {
-        Self {
-            proposal_id: proposal.id,
-            proposer: proposal.proposer,
-            proposed_at_height: proposal.proposed_at_height,
-            activation_height: proposal.activation_height,
-            voting_deadline_height: proposal.voting_deadline_height,
-            version: proposal.version.into(),
-            major: outbe_update::state::protocol_version_major(proposal.version),
-            minor: outbe_update::state::protocol_version_minor(proposal.version),
-            info: hex::encode(&proposal.info),
-            status: proposal.status.into(),
-            state: (&proposal).into(),
-        }
-    }
-}
-
-impl From<outbe_update::state::VoteInfo> for UpdateVoteInfo {
-    fn from(vote: outbe_update::state::VoteInfo) -> Self {
-        Self {
-            proposal_id: vote.proposal_id,
-            voter: vote.voter,
-            approve: vote.vote_kind.to_approve(),
-            block_number: vote.block_number,
+            proposal_id: scheduled.proposal_id,
+            version: scheduled.version.into(),
+            major: outbe_update::state::protocol_version_major(scheduled.version),
+            minor: outbe_update::state::protocol_version_minor(scheduled.version),
+            activation_height: scheduled.activation_height,
+            info: hex::encode(&scheduled.info),
+            status: scheduled.status.into(),
         }
     }
 }
@@ -345,32 +291,18 @@ pub trait OutbeApi {
         &self,
     ) -> jsonrpsee::core::RpcResult<UpdateActiveVersionInfo>;
 
-    /// Returns upgrade proposal details, or `null` when the id was never allocated.
-    #[method(name = "getUpdateProposal")]
-    async fn get_update_proposal(
+    /// Returns a scheduled update by governance proposal id.
+    #[method(name = "getUpdateScheduledUpdate")]
+    async fn get_update_scheduled_update(
         &self,
         proposal_id: U256,
-    ) -> jsonrpsee::core::RpcResult<Option<UpdateProposalInfo>>;
+    ) -> jsonrpsee::core::RpcResult<Option<UpdateScheduledUpdateInfo>>;
 
-    /// Returns proposals currently in the voting phase.
-    #[method(name = "listUpdatePendingProposals")]
-    async fn list_update_pending_proposals(
+    /// Returns scheduled updates waiting for activation height.
+    #[method(name = "listUpdateWaitingForActivation")]
+    async fn list_update_waiting_for_activation(
         &self,
-    ) -> jsonrpsee::core::RpcResult<Vec<UpdateProposalInfo>>;
-
-    /// Returns approved proposals waiting for activation height.
-    #[method(name = "listUpdateWaitingProposals")]
-    async fn list_update_waiting_proposals(
-        &self,
-    ) -> jsonrpsee::core::RpcResult<Vec<UpdateProposalInfo>>;
-
-    /// Returns a validator vote on a proposal, or `null` when absent.
-    #[method(name = "getUpdateVote")]
-    async fn get_update_vote(
-        &self,
-        proposal_id: U256,
-        voter: Address,
-    ) -> jsonrpsee::core::RpcResult<Option<UpdateVoteInfo>>;
+    ) -> jsonrpsee::core::RpcResult<Vec<UpdateScheduledUpdateInfo>>;
 }
 
 #[cfg(test)]
@@ -515,26 +447,22 @@ mod tests {
     }
 
     #[test]
-    fn test_update_proposal_info_serialization_camel_case() {
-        use super::{UpdateProposalInfo, UpdateProposalStatus, UpdateVoteTallyInfo};
+    fn test_update_scheduled_update_info_serialization_camel_case() {
+        use super::{UpdateScheduledUpdateInfo, UpdateScheduledUpdateStatus};
 
-        let info = UpdateProposalInfo {
+        let info = UpdateScheduledUpdateInfo {
             proposal_id: U256::from(1),
-            proposer: Address::ZERO,
-            proposed_at_height: 10,
-            activation_height: 1000,
-            voting_deadline_height: 500,
             version: 65538,
             major: 1,
             minor: 2,
+            activation_height: 1000,
             info: "6869".to_string(),
-            status: UpdateProposalStatus::Pending,
-            state: UpdateVoteTallyInfo { yes: 2, no: 1 },
+            status: UpdateScheduledUpdateStatus::Pending,
         };
 
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"proposalId\""));
-        assert!(json.contains("\"votingDeadlineHeight\""));
+        assert!(json.contains("\"activationHeight\""));
         assert!(json.contains("\"pending\""));
     }
 }

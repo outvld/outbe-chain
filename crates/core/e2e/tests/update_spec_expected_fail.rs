@@ -11,98 +11,41 @@ use outbe_primitives::addresses::UPDATE_ADDRESS;
 use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
 use outbe_primitives::error::PrecompileError;
 use outbe_primitives::storage::{hashmap::HashMapStorageProvider, StorageHandle};
+use outbe_update::handlers::EMPTY_UPGRADE_HANDLER_REGISTRY;
+use outbe_update::lifecycle::UpdateLifecycle;
 use outbe_update::precompile::{dispatch, IUpdate};
 use outbe_update::schema::Update;
-use outbe_update::state::ProposalStatus;
-use outbe_update::{encode_protocol_version, ProtocolVersion};
-use outbe_validatorset::contract::ValidatorSet;
+use outbe_update::state::ScheduledUpdateStatus;
+use outbe_update::{encode_protocol_version, encode_scheduled_update_payload, ProtocolVersion};
 
 const CHAIN_ID: u64 = 1;
 const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
-const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
-const VOTER_B: Address = address!("0x3333333333333333333333333333333333333333");
-const VOTER_C: Address = address!("0x5555555555555555555555555555555555555555");
-const VALIDATOR_OWNER: Address = address!("0xffffffffffffffffffffffffffffffffffffffff");
 
 const V1_2: ProtocolVersion = encode_protocol_version(1, 2);
 const V1_3: ProtocolVersion = encode_protocol_version(1, 3);
 
-fn dummy_pubkey(seed: u8) -> [u8; 48] {
-    let mut pk = [0u8; 48];
-    pk[0] = seed;
-    pk
-}
-
-fn register_active_validator(storage: StorageHandle, addr: Address, seed: u8) {
-    let mut vs = ValidatorSet::new(storage.clone());
-    vs.config_owner.write(VALIDATOR_OWNER).unwrap();
-    vs.config_max_validators.write(100).unwrap();
-    vs.register_validator(VALIDATOR_OWNER, addr, &dummy_pubkey(seed))
-        .unwrap();
-    vs.activate_validator(addr).unwrap();
-}
-
-fn seed_oracle_pair(storage: StorageHandle) {
-    let mut oracle = outbe_oracle::contract::OracleContract::new(storage);
-    oracle.register_pair("COEN", "0xUSD").unwrap();
-    oracle
-        .set_exchange_rate(
-            Address::ZERO,
-            "COEN",
-            "0xUSD",
-            U256::from(1_000_000_000_000_000_000u128),
-            0,
-            0,
-        )
-        .unwrap();
-}
-
-fn setup_four_validators(storage: StorageHandle) {
-    register_active_validator(storage.clone(), PROPOSER, 1);
-    register_active_validator(storage.clone(), VOTER_A, 2);
-    register_active_validator(storage.clone(), VOTER_B, 3);
-    register_active_validator(storage.clone(), VOTER_C, 4);
-    seed_oracle_pair(storage);
-}
-
 fn min_activation(current: u64) -> u64 {
-    current
-        .saturating_add(outbe_update::constants::VOTING_WINDOW_BLOCKS)
-        .saturating_add(outbe_update::constants::MIN_ACTIVATION_BUFFER)
+    current.saturating_add(outbe_update::constants::MIN_ACTIVATION_BUFFER)
 }
 
 fn with_runtime_at<F: FnOnce(StorageHandle, u64)>(current: u64, f: F) {
     let mut provider = HashMapStorageProvider::new(CHAIN_ID);
     provider.set_block_number(current);
     let storage = StorageHandle::new(&mut provider);
-    setup_four_validators(storage.clone());
     f(storage, current);
 }
 
-fn dispatch_create_proposal(
-    storage: StorageHandle,
-    proposer: Address,
+fn schedule_update(
+    update: &mut Update<'_>,
+    proposal_id: U256,
     version: ProtocolVersion,
     activation: u64,
-) -> U256 {
-    let create_data = IUpdate::createProposalCall {
-        version: version.raw(),
-        activationHeight: activation,
-        info: Default::default(),
-    }
-    .abi_encode();
-    let created = dispatch(storage.clone(), &create_data, proposer, U256::ZERO)
-        .expect("createProposal dispatch should succeed");
-    IUpdate::createProposalCall::abi_decode_returns(&created).expect("decode proposal id")
-}
-
-fn dispatch_cast_vote(storage: StorageHandle, voter: Address, proposal_id: U256, approve: bool) {
-    let vote_data = IUpdate::castVoteCall {
-        proposalId: proposal_id,
-        approve,
-    }
-    .abi_encode();
-    dispatch(storage, &vote_data, voter, U256::ZERO).expect("castVote dispatch should succeed");
+    current: u64,
+) {
+    let payload = encode_scheduled_update_payload(version, activation, b"");
+    update
+        .schedule_update_from_governance(proposal_id, &payload, current)
+        .expect("schedule_update_from_governance should succeed");
 }
 
 fn dispatch_get_active_version_u32(storage: StorageHandle) -> u32 {
@@ -112,7 +55,7 @@ fn dispatch_get_active_version_u32(storage: StorageHandle) -> u32 {
     IUpdate::getActiveVersionCall::abi_decode_returns(&active_bytes).expect("decode active version")
 }
 
-fn run_begin_block(storage: StorageHandle, block_number: u64) {
+fn run_update_begin_block(storage: StorageHandle, block_number: u64) {
     storage
         .set_block_timestamp(U256::from(block_number))
         .expect("set block timestamp");
@@ -120,8 +63,8 @@ fn run_begin_block(storage: StorageHandle, block_number: u64) {
         BlockContext::new(block_number, block_number, CHAIN_ID, PROPOSER, Vec::new()),
         storage,
     );
-    outbe_evm::executor::run_outbe_pre_execution_hooks(&ctx, None)
-        .expect("pre-execution hook chain should succeed");
+    UpdateLifecycle::begin_block_with_handlers(&ctx, &EMPTY_UPGRADE_HANDLER_REGISTRY)
+        .expect("update begin block should succeed");
 }
 
 fn has_update_event(provider: &HashMapStorageProvider, topic0: alloy_primitives::B256) -> bool {
@@ -131,112 +74,60 @@ fn has_update_event(provider: &HashMapStorageProvider, topic0: alloy_primitives:
         .any(|log| log.topics().first() == Some(&topic0))
 }
 
-// ---- runnable cross-module flows --------------------------------------------
-
 #[test]
-fn e2e_full_flow_three_yes_activates() {
+fn e2e_scheduled_update_activates_at_height() {
     with_runtime_at(100, |storage, current| {
         let activation = min_activation(current);
-        let proposal_id = dispatch_create_proposal(storage.clone(), PROPOSER, V1_2, activation);
-        dispatch_cast_vote(storage.clone(), VOTER_A, proposal_id, true);
-        dispatch_cast_vote(storage.clone(), VOTER_B, proposal_id, true);
-        dispatch_cast_vote(storage.clone(), VOTER_C, proposal_id, true);
+        let proposal_id = U256::from(1);
+        let mut update = Update::new(storage.clone());
+        schedule_update(&mut update, proposal_id, V1_2, activation, current);
 
-        let update = Update::new(storage.clone());
-        let deadline = update
-            .read_proposal(proposal_id)
-            .unwrap()
-            .unwrap()
-            .voting_deadline_height;
+        run_update_begin_block(storage.clone(), activation);
 
-        run_begin_block(storage.clone(), deadline + 1);
-        run_begin_block(storage.clone(), activation);
-
-        let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
-        assert_eq!(proposal.status, ProposalStatus::Activated);
+        let scheduled = update.read_scheduled_update(proposal_id).unwrap().unwrap();
+        assert_eq!(scheduled.status, ScheduledUpdateStatus::Activated);
         assert_eq!(dispatch_get_active_version_u32(storage), V1_2.raw());
         assert_eq!(V1_2.to_string(), "v1.2");
     });
 }
 
 #[test]
-fn e2e_two_yes_expires() {
-    with_runtime_at(100, |storage, current| {
-        let proposal_id =
-            dispatch_create_proposal(storage.clone(), PROPOSER, V1_2, min_activation(current));
-        dispatch_cast_vote(storage.clone(), VOTER_A, proposal_id, true);
-        dispatch_cast_vote(storage.clone(), VOTER_B, proposal_id, true);
-
-        let update = Update::new(storage.clone());
-        let deadline = update
-            .read_proposal(proposal_id)
-            .unwrap()
-            .unwrap()
-            .voting_deadline_height;
-        run_begin_block(storage.clone(), deadline + 1);
-
-        let proposal = update.read_proposal(proposal_id).unwrap().unwrap();
-        assert_eq!(proposal.status, ProposalStatus::Expired);
-        assert_eq!(dispatch_get_active_version_u32(storage), 0);
-    });
-}
-
-#[test]
-fn e2e_downgrade_attempt_rejected() {
+fn e2e_downgrade_schedule_rejected() {
     with_runtime_at(10, |storage, current| {
         let mut update = Update::new(storage.clone());
         update.set_active_version(V1_3, 1).unwrap();
 
-        let err = dispatch(
-            storage.clone(),
-            &IUpdate::createProposalCall {
-                version: encode_protocol_version(1, 2).raw(),
-                activationHeight: min_activation(current),
-                info: Default::default(),
-            }
-            .abi_encode(),
-            PROPOSER,
-            U256::ZERO,
-        )
-        .unwrap_err();
+        let payload = encode_scheduled_update_payload(V1_2, min_activation(current), b"");
+        let err = update
+            .schedule_update_from_governance(U256::from(1), &payload, current)
+            .unwrap_err();
         assert!(
             matches!(
                 err,
                 PrecompileError::Revert(msg) if msg.contains("downgrade")
             ),
-            "downgrade proposal must be rejected"
+            "downgrade schedule must be rejected"
         );
     });
 }
 
 #[test]
-fn e2e_conflicting_proposals() {
+fn e2e_conflicting_activation_heights_rejected() {
     with_runtime_at(100, |storage, current| {
         let activation = min_activation(current);
-        let first = dispatch_create_proposal(storage.clone(), PROPOSER, V1_2, activation);
-        let second = dispatch_create_proposal(storage.clone(), PROPOSER, V1_3, activation);
+        let mut update = Update::new(storage.clone());
+        schedule_update(&mut update, U256::from(1), V1_2, activation, current);
 
-        for proposal_id in [first, second] {
-            dispatch_cast_vote(storage.clone(), VOTER_A, proposal_id, true);
-            dispatch_cast_vote(storage.clone(), VOTER_B, proposal_id, true);
-            dispatch_cast_vote(storage.clone(), VOTER_C, proposal_id, true);
-        }
-
-        let update = Update::new(storage.clone());
-        let deadline = update
-            .read_proposal(first)
-            .unwrap()
-            .unwrap()
-            .voting_deadline_height;
-        run_begin_block(storage.clone(), deadline + 1);
-
-        assert_eq!(
-            update.read_proposal(first).unwrap().unwrap().status,
-            ProposalStatus::Approved
-        );
-        assert_eq!(
-            update.read_proposal(second).unwrap().unwrap().status,
-            ProposalStatus::Rejected
+        let payload = encode_scheduled_update_payload(V1_3, activation, b"");
+        let err = update
+            .schedule_update_from_governance(U256::from(2), &payload, current)
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                PrecompileError::Revert(msg) if msg.contains("activation height")
+            ),
+            "conflicting activation height must be rejected"
         );
     });
 }
@@ -246,34 +137,36 @@ fn e2e_lifecycle_events_visible_in_transaction_receipts() {
     let mut provider = HashMapStorageProvider::new(CHAIN_ID);
     provider.set_block_number(100);
     let storage = StorageHandle::new(&mut provider);
-    setup_four_validators(storage.clone());
 
     let activation = min_activation(100);
-    let proposal_id = dispatch_create_proposal(storage.clone(), PROPOSER, V1_2, activation);
-    dispatch_cast_vote(storage.clone(), VOTER_A, proposal_id, true);
-    dispatch_cast_vote(storage.clone(), VOTER_B, proposal_id, true);
-    dispatch_cast_vote(storage.clone(), VOTER_C, proposal_id, true);
+    let proposal_id = U256::from(1);
+    let mut update = Update::new(storage.clone());
+    schedule_update(&mut update, proposal_id, V1_2, activation, 100);
+    run_update_begin_block(storage.clone(), activation);
 
-    let update = Update::new(storage.clone());
-    let deadline = update
-        .read_proposal(proposal_id)
-        .unwrap()
-        .unwrap()
-        .voting_deadline_height;
-    run_begin_block(storage.clone(), deadline + 1);
-    run_begin_block(storage.clone(), activation);
-
-    let approved_event_exists =
-        has_update_event(&provider, IUpdate::ProposalApproved::SIGNATURE_HASH);
+    let scheduled_event_exists =
+        has_update_event(&provider, IUpdate::ScheduledUpdateCreated::SIGNATURE_HASH);
     let activated_event_exists =
         has_update_event(&provider, IUpdate::UpgradeActivated::SIGNATURE_HASH);
     assert!(
-        approved_event_exists && activated_event_exists,
-        "lifecycle processing must emit approval and activation events"
+        scheduled_event_exists && activated_event_exists,
+        "lifecycle processing must emit schedule and activation events"
     );
 }
 
-// ---- operator / RPC / localnet gaps -----------------------------------------
+#[test]
+fn e2e_legacy_governance_selectors_rejected_at_update_address() {
+    with_runtime_at(100, |storage, _current| {
+        let err = dispatch(
+            storage,
+            &[0xb1, 0xa1, 0x41, 0x06],
+            PROPOSER,
+            U256::ZERO,
+        )
+        .unwrap_err();
+        assert!(matches!(err, PrecompileError::Revert(_)));
+    });
+}
 
 #[test]
 fn startup_binary_version_check_rejects_older_binary() {
@@ -287,10 +180,6 @@ fn startup_binary_version_check_rejects_older_binary() {
 fn startup_binary_version_check_allows_pre_governance_chain() {
     outbe_update::startup::assert_binary_protocol_compatible(ProtocolVersion::ZERO).unwrap();
 }
-
-// RPC read methods (`outbe_getUpdateActiveVersion`, `outbe_getUpdateProposal`, etc.)
-// and CLI commands (`outbe-cli update propose|vote|status`) are implemented in
-// `outbe-rpc` and `outbe-cli`. Full operator-flow e2e remains deferred to localnet.
 
 #[test]
 #[should_panic(expected = "SPEC_EXPECTED_FAIL: localnet update smoke not implemented")]

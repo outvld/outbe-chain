@@ -24,8 +24,7 @@ use std::sync::Arc;
 use crate::api::{
     ConsensusStatusInfo, EmissionInfo, EpochInfo, FinalizationProof, OutbeApiServer,
     ParticipationInfo, Phase1VerificationMode, SlashConfig, SlashInfo, SyncStatusInfo,
-    UpdateActiveVersionInfo, UpdateProposalInfo, UpdateVoteInfo, ValidatorDetailInfo,
-    ValidatorInfo,
+    UpdateActiveVersionInfo, UpdateScheduledUpdateInfo, ValidatorDetailInfo, ValidatorInfo,
 };
 
 /// Bridge from Reth's `StateProvider` to outbe's `StorageReader` trait.
@@ -341,54 +340,30 @@ where
         })
     }
 
-    async fn get_update_proposal(
+    async fn get_update_scheduled_update(
         &self,
         proposal_id: U256,
-    ) -> RpcResult<Option<UpdateProposalInfo>> {
+    ) -> RpcResult<Option<UpdateScheduledUpdateInfo>> {
         self.with_latest_state(|storage| {
             let update = outbe_update::schema::Update::new(storage);
             Ok(update
-                .read_proposal(proposal_id)?
-                .map(UpdateProposalInfo::from))
+                .read_scheduled_update(proposal_id)?
+                .map(UpdateScheduledUpdateInfo::from))
         })
     }
 
-    async fn list_update_pending_proposals(&self) -> RpcResult<Vec<UpdateProposalInfo>> {
+    async fn list_update_waiting_for_activation(
+        &self,
+    ) -> RpcResult<Vec<UpdateScheduledUpdateInfo>> {
         self.with_latest_state(|storage| {
             let update = outbe_update::schema::Update::new(storage);
-            let mut proposals = Vec::new();
-            for proposal_id in update.list_pending_proposal_ids()? {
-                if let Some(proposal) = update.read_proposal(proposal_id)? {
-                    proposals.push(proposal.into());
-                }
-            }
-            Ok(proposals)
-        })
-    }
-
-    async fn list_update_waiting_proposals(&self) -> RpcResult<Vec<UpdateProposalInfo>> {
-        self.with_latest_state(|storage| {
-            let update = outbe_update::schema::Update::new(storage);
-            let mut proposals = Vec::new();
+            let mut scheduled = Vec::new();
             for proposal_id in update.list_waiting_for_activation_proposal_ids()? {
-                if let Some(proposal) = update.read_proposal(proposal_id)? {
-                    proposals.push(proposal.into());
+                if let Some(record) = update.read_scheduled_update(proposal_id)? {
+                    scheduled.push(record.into());
                 }
             }
-            Ok(proposals)
-        })
-    }
-
-    async fn get_update_vote(
-        &self,
-        proposal_id: U256,
-        voter: Address,
-    ) -> RpcResult<Option<UpdateVoteInfo>> {
-        self.with_latest_state(|storage| {
-            let update = outbe_update::schema::Update::new(storage);
-            Ok(update
-                .read_vote(proposal_id, voter)?
-                .map(UpdateVoteInfo::from))
+            Ok(scheduled)
         })
     }
 }

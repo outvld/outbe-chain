@@ -422,8 +422,8 @@ pub fn check_binary_version_compatibility(
     let active_version = read_active_protocol_version_at_latest(&provider)?;
     outbe_update::startup::assert_binary_protocol_compatible(active_version)
         .map_err(eyre::Error::msg)?;
-    let waiting = read_waiting_update_proposals_at_latest(&provider)?;
-    outbe_update::startup::warn_missing_handlers_for_waiting_proposals(&waiting, registry);
+    let waiting = read_waiting_scheduled_updates_at_latest(&provider)?;
+    outbe_update::startup::warn_missing_handlers_for_waiting_updates(&waiting, registry);
     Ok(())
 }
 
@@ -441,10 +441,10 @@ fn read_active_protocol_version_at_latest(
     Ok(update.get_active_version()?.unwrap_or_default())
 }
 
-/// Read approved proposals waiting for activation from the latest committed state.
-fn read_waiting_update_proposals_at_latest(
+/// Read scheduled updates waiting for activation from the latest committed state.
+fn read_waiting_scheduled_updates_at_latest(
     provider: &dyn StateProviderFactory,
-) -> Result<Vec<outbe_update::state::ProposalInfo>> {
+) -> Result<Vec<outbe_update::ScheduledUpdateInfo>> {
     let state = provider
         .latest()
         .map_err(|e| eyre::eyre!("failed to get latest state: {e}"))?;
@@ -452,13 +452,13 @@ fn read_waiting_update_proposals_at_latest(
     let mut provider = ReadOnlyStorageProvider::new(reader);
     let storage = StorageHandle::new(&mut provider);
     let update = outbe_update::schema::Update::new(storage);
-    let mut proposals = Vec::new();
+    let mut scheduled = Vec::new();
     for proposal_id in update.list_waiting_for_activation_proposal_ids()? {
-        if let Some(proposal) = update.read_proposal(proposal_id)? {
-            proposals.push(proposal);
+        if let Some(record) = update.read_scheduled_update(proposal_id)? {
+            scheduled.push(record);
         }
     }
-    Ok(proposals)
+    Ok(scheduled)
 }
 
 #[cfg(test)]

@@ -1,20 +1,22 @@
-//! Upgrade governance commands.
+//! Upgrade operator commands: governance writes, update reads.
 
 use alloy_primitives::U256;
 use alloy_sol_types::SolCall;
 use clap::Subcommand;
 use eyre::{Result, WrapErr};
+use outbe_governance::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 use outbe_update::constants::PROTOCOL_VERSION;
-use outbe_update::version::{format_protocol_version, try_parse_protocol_version};
-use outbe_update::ProtocolVersion;
+use outbe_update::payload::decode_scheduled_update_payload;
+use outbe_update::version::{format_protocol_version, try_parse_protocol_version, ProtocolVersionParseError};
+use outbe_update::{encode_scheduled_update_payload, ProtocolVersion};
 use serde_json::Value;
 
-use crate::abi::{IUpdate, UPDATE_ADDRESS};
+use crate::abi::{IGovernance, GOVERNANCE_ADDRESS};
 use crate::rpc::Rpc;
 
 #[derive(Subcommand)]
 pub enum UpdateCmd {
-    /// Create an upgrade proposal (active validator only).
+    /// Create an upgrade proposal via governance (active validator only).
     Propose {
         /// Protocol version as `major.minor` or raw `u32`. Defaults to this binary's version.
         #[arg(long)]
@@ -29,7 +31,7 @@ pub enum UpdateCmd {
         #[arg(long)]
         force: bool,
     },
-    /// Cast a vote on a pending proposal (active validator only).
+    /// Cast a governance vote on a pending proposal (active validator only).
     Vote {
         /// Proposal id.
         #[arg(long)]
@@ -44,9 +46,9 @@ pub enum UpdateCmd {
         #[arg(long)]
         force: bool,
     },
-    /// Show active version and proposal status.
+    /// Show active version and proposal / scheduled-update status.
     Status {
-        /// Optional proposal id for detailed status.
+        /// Optional governance proposal id for detailed status.
         #[arg(long)]
         proposal_id: Option<U256>,
     },
@@ -80,14 +82,10 @@ impl UpdateCmd {
     }
 }
 
-fn parse_protocol_version(input: &str) -> Result<ProtocolVersion> {
-    try_parse_protocol_version(input)
-        .map_err(|err| eyre::eyre!("invalid protocol version '{input}': {err}"))
-}
-
 fn resolve_proposal_version(version: Option<String>) -> Result<ProtocolVersion> {
     match version {
-        Some(value) => parse_protocol_version(&value),
+        Some(value) => try_parse_protocol_version(&value)
+            .map_err(|err| eyre::eyre!("invalid protocol version '{value}': {err}")),
         None => Ok(PROTOCOL_VERSION),
     }
 }
@@ -104,13 +102,6 @@ fn parse_info_bytes(info: Option<String>) -> Result<Vec<u8>> {
 
 fn active_version_from_rpc(active: &Value) -> ProtocolVersion {
     ProtocolVersion::from(active["version"].as_u64().unwrap_or(0) as u32)
-}
-
-fn proposal_version_from_rpc(proposal: &Value) -> Result<ProtocolVersion> {
-    proposal["version"]
-        .as_u64()
-        .map(|version| ProtocolVersion::from(version as u32))
-        .ok_or_else(|| eyre::eyre!("proposal response missing version field"))
 }
 
 async fn fetch_active_version(client: &(impl Rpc + Sync)) -> Result<ProtocolVersion> {
@@ -140,10 +131,7 @@ fn ensure_propose_version_compatible(
     Ok(())
 }
 
-fn ensure_approve_version_compatible(
-    proposal_version: ProtocolVersion,
-    binary: ProtocolVersion,
-) -> Result<()> {
+fn ensure_approve_version_compatible(proposal_version: ProtocolVersion, binary: ProtocolVersion) -> Result<()> {
     if proposal_version > binary {
         eyre::bail!(
             "proposal version {} exceeds binary protocol version {}; upgrade the binary or use --force",
@@ -152,6 +140,29 @@ fn ensure_approve_version_compatible(
         );
     }
     Ok(())
+}
+
+fn decode_update_fields_from_proposal(
+    proposal: &IGovernance::ProposalInfo,
+) -> Result<(ProtocolVersion, u64, Vec<u8>)> {
+    if proposal.targetModule != UPDATE_TARGET_MODULE || proposal.action != SCHEDULE_UPDATE_ACTION {
+        eyre::bail!("proposal is not an update scheduling action");
+    }
+    decode_scheduled_update_payload(proposal.payload.as_ref())
+        .map_err(|err| eyre::eyre!("invalid update payload in proposal: {err}"))
+}
+
+async fn fetch_governance_proposal(
+    client: &(impl Rpc + Sync),
+    proposal_id: U256,
+) -> Result<IGovernance::ProposalInfo> {
+    let call = IGovernance::getProposalCall { proposalId: proposal_id };
+    let ret = client
+        .eth_call(GOVERNANCE_ADDRESS, &call.abi_encode())
+        .await
+        .wrap_err("governance getProposal eth_call failed")?;
+    IGovernance::getProposalCall::abi_decode_returns(&ret)
+        .wrap_err("failed to decode governance proposal")
 }
 
 async fn propose(
@@ -169,14 +180,20 @@ async fn propose(
         ensure_propose_version_compatible(version, active, PROTOCOL_VERSION)?;
     }
     let info_bytes = parse_info_bytes(info)?;
+    let payload = encode_scheduled_update_payload(version, activation_height, &info_bytes);
 
-    let call = IUpdate::createProposalCall {
-        version: version.into(),
-        activationHeight: activation_height,
-        info: info_bytes.into(),
+    let call = IGovernance::createProposalCall {
+        targetModule: UPDATE_TARGET_MODULE,
+        action: SCHEDULE_UPDATE_ACTION,
+        payload: payload.into(),
     };
     let tx_hash = signer
-        .send_tx(client, UPDATE_ADDRESS, call.abi_encode(), U256::ZERO)
+        .send_tx(
+            client,
+            GOVERNANCE_ADDRESS,
+            call.abi_encode(),
+            U256::ZERO,
+        )
         .await?;
     println!(
         "Proposal transaction sent: {tx_hash} (version {})",
@@ -193,42 +210,48 @@ async fn vote(
     force: bool,
 ) -> Result<()> {
     if approve && !force {
-        let proposal = client
-            .outbe_get_update_proposal(proposal_id)
-            .await?
-            .ok_or_else(|| eyre::eyre!("proposal {proposal_id} not found"))?;
-        let proposal_version = proposal_version_from_rpc(&proposal)?;
+        let proposal = fetch_governance_proposal(client, proposal_id).await?;
+        let (proposal_version, _, _) = decode_update_fields_from_proposal(&proposal)?;
         ensure_approve_version_compatible(proposal_version, PROTOCOL_VERSION)?;
     }
 
     let signer = super::require_signer(private_key)?;
-    let call = IUpdate::castVoteCall {
+    let call = IGovernance::castVoteCall {
         proposalId: proposal_id,
         approve,
     };
     let tx_hash = signer
-        .send_tx(client, UPDATE_ADDRESS, call.abi_encode(), U256::ZERO)
+        .send_tx(
+            client,
+            GOVERNANCE_ADDRESS,
+            call.abi_encode(),
+            U256::ZERO,
+        )
         .await?;
-    println!("Vote transaction sent: {tx_hash} (proposal {proposal_id}, approve={approve})");
+    println!(
+        "Vote transaction sent: {tx_hash} (proposal {proposal_id}, approve={approve})"
+    );
     Ok(())
 }
 
 async fn status(client: &(impl Rpc + Sync), proposal_id: Option<U256>) -> Result<()> {
     if let Some(proposal_id) = proposal_id {
-        let proposal = client
-            .outbe_get_update_proposal(proposal_id)
+        let proposal = fetch_governance_proposal(client, proposal_id).await?;
+        print_governance_proposal("Proposal", &proposal);
+
+        if let Some(scheduled) = client
+            .outbe_get_update_scheduled_update(proposal_id)
             .await?
-            .ok_or_else(|| eyre::eyre!("proposal {proposal_id} not found"))?;
-        print_proposal("Proposal", &proposal);
+        {
+            print_scheduled_update("Scheduled update", &scheduled);
+        }
         return Ok(());
     }
 
     let active = client.outbe_get_update_active_version().await?;
     println!(
         "Active version: {} (activation height {})",
-        format_protocol_version(ProtocolVersion::from(
-            active["version"].as_u64().unwrap_or(0) as u32
-        )),
+        format_protocol_version(active_version_from_rpc(&active)),
         active["activationHeight"].as_u64().unwrap_or(0)
     );
     println!(
@@ -236,42 +259,62 @@ async fn status(client: &(impl Rpc + Sync), proposal_id: Option<U256>) -> Result
         format_protocol_version(PROTOCOL_VERSION)
     );
 
-    let pending = client.outbe_list_update_pending_proposals().await?;
-    println!(
-        "Pending proposals: {}",
-        pending.as_array().map_or(0, |v| v.len())
-    );
-    for proposal in pending.as_array().into_iter().flatten() {
-        print_proposal("  Pending", proposal);
-    }
-
-    let waiting = client.outbe_list_update_waiting_proposals().await?;
+    let waiting = client.outbe_list_update_waiting_for_activation().await?;
     println!(
         "Waiting for activation: {}",
         waiting.as_array().map_or(0, |v| v.len())
     );
-    for proposal in waiting.as_array().into_iter().flatten() {
-        print_proposal("  Waiting", proposal);
+    for scheduled in waiting.as_array().into_iter().flatten() {
+        print_scheduled_update("  Waiting", scheduled);
     }
 
     Ok(())
 }
 
-fn print_proposal(label: &str, proposal: &Value) {
-    let proposal_id = proposal["proposalId"]
+fn proposal_status_label(status: IGovernance::ProposalStatus) -> &'static str {
+    match status {
+        IGovernance::ProposalStatus::Pending => "pending",
+        IGovernance::ProposalStatus::Approved => "approved",
+        IGovernance::ProposalStatus::Rejected => "rejected",
+        IGovernance::ProposalStatus::Expired => "expired",
+        _ => "unknown",
+    }
+}
+
+fn print_governance_proposal(label: &str, proposal: &IGovernance::ProposalInfo) {
+    let proposal_id = proposal.proposalId;
+    let status = proposal_status_label(proposal.status);
+    let deadline = proposal.votingDeadlineHeight;
+    let yes = proposal.state.yes;
+    let no = proposal.state.no;
+
+    match decode_update_fields_from_proposal(proposal) {
+        Ok((version, activation, _)) => {
+            println!(
+                "{label} #{proposal_id}: {} status={status} activation={activation} deadline={deadline} votes={yes}/{no}",
+                format_protocol_version(version)
+            );
+        }
+        Err(_) => {
+            println!(
+                "{label} #{proposal_id}: status={status} deadline={deadline} votes={yes}/{no} (non-update payload)"
+            );
+        }
+    }
+}
+
+fn print_scheduled_update(label: &str, scheduled: &Value) {
+    let proposal_id = scheduled["proposalId"]
         .as_str()
         .map(str::to_string)
-        .or_else(|| proposal["proposalId"].as_u64().map(|n| n.to_string()))
+        .or_else(|| scheduled["proposalId"].as_u64().map(|n| n.to_string()))
         .unwrap_or_else(|| "?".to_string());
-    let version = ProtocolVersion::from(proposal["version"].as_u64().unwrap_or(0) as u32);
-    let status = proposal["status"].as_str().unwrap_or("unknown");
-    let activation = proposal["activationHeight"].as_u64().unwrap_or(0);
-    let deadline = proposal["votingDeadlineHeight"].as_u64().unwrap_or(0);
-    let yes = proposal["state"]["yes"].as_u64().unwrap_or(0);
-    let no = proposal["state"]["no"].as_u64().unwrap_or(0);
+    let version = ProtocolVersion::from(scheduled["version"].as_u64().unwrap_or(0) as u32);
+    let status = scheduled["status"].as_str().unwrap_or("unknown");
+    let activation = scheduled["activationHeight"].as_u64().unwrap_or(0);
 
     println!(
-        "{label} #{proposal_id}: {} status={status} activation={activation} deadline={deadline} votes={yes}/{no}",
+        "{label} #{proposal_id}: {} status={status} activation={activation}",
         format_protocol_version(version)
     );
 }
@@ -279,66 +322,70 @@ fn print_proposal(label: &str, proposal: &Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rpc::mock::{recording_send_tx_rpc, MockRpc};
+    use crate::abi::GOVERNANCE_ADDRESS;
+    use crate::Cli;
+    use crate::rpc::mock::{call_map, recording_send_tx_rpc, MockRpc};
+    use alloy_primitives::Address;
+    use alloy_sol_types::SolCall;
+    use clap::Parser;
     use outbe_update::encode_protocol_version;
+    use std::collections::HashMap;
 
     #[test]
     fn parse_protocol_version_major_minor() {
         assert_eq!(
-            parse_protocol_version("1.2").unwrap(),
+            try_parse_protocol_version("1.2").unwrap(),
             encode_protocol_version(1, 2)
         );
     }
 
     #[test]
     fn parse_protocol_version_raw_u32() {
-        assert_eq!(parse_protocol_version("65536").unwrap().raw(), 65536);
+        assert_eq!(try_parse_protocol_version("65536").unwrap().raw(), 65536);
     }
 
     #[test]
-    fn resolve_proposal_version_defaults_to_binary() {
-        assert_eq!(resolve_proposal_version(None).unwrap(), PROTOCOL_VERSION);
-    }
-
-    #[test]
-    fn propose_version_must_be_greater_than_active() {
-        let err =
-            ensure_propose_version_compatible(PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_VERSION)
-                .unwrap_err();
-        assert!(err.to_string().contains("must be greater than active"));
-    }
-
-    #[test]
-    fn propose_version_must_not_exceed_binary() {
-        let err = ensure_propose_version_compatible(
-            encode_protocol_version(9, 0),
-            ProtocolVersion::ZERO,
-            PROTOCOL_VERSION,
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("exceeds binary protocol version"));
-    }
-
-    #[test]
-    fn approve_version_must_not_exceed_binary() {
-        let err =
-            ensure_approve_version_compatible(encode_protocol_version(9, 0), PROTOCOL_VERSION)
-                .unwrap_err();
-        assert!(err.to_string().contains("exceeds binary protocol version"));
+    fn parse_protocol_version_rejects_invalid() {
+        assert!(matches!(
+            try_parse_protocol_version("1.2.3"),
+            Err(ProtocolVersionParseError::TooManyComponents)
+        ));
     }
 
     #[test]
     fn test_cli_parse_update_status() {
-        use crate::Cli;
-        use clap::Parser;
         let cli = Cli::try_parse_from(["outbe-cli", "update", "status"]);
         assert!(cli.is_ok());
     }
 
     #[test]
+    fn test_cli_parse_update_status_with_proposal_id() {
+        let cli = Cli::try_parse_from([
+            "outbe-cli",
+            "update",
+            "status",
+            "--proposal-id",
+            "1",
+        ]);
+        assert!(cli.is_ok());
+    }
+
+    #[test]
+    fn test_cli_parse_update_propose() {
+        let cli = Cli::try_parse_from([
+            "outbe-cli",
+            "update",
+            "propose",
+            "--version",
+            "1.2",
+            "--activation-height",
+            "1000",
+        ]);
+        assert!(cli.is_ok());
+    }
+
+    #[test]
     fn test_cli_parse_update_propose_without_version() {
-        use crate::Cli;
-        use clap::Parser;
         let cli = Cli::try_parse_from([
             "outbe-cli",
             "update",
@@ -350,36 +397,94 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_parse_update_propose_with_force() {
-        use crate::Cli;
-        use clap::Parser;
+    fn test_cli_parse_update_vote_yes() {
         let cli = Cli::try_parse_from([
             "outbe-cli",
             "update",
-            "propose",
-            "--version",
-            "9.0",
-            "--activation-height",
-            "1000",
-            "--force",
+            "vote",
+            "--proposal-id",
+            "1",
+            "--yes",
         ]);
         assert!(cli.is_ok());
     }
 
+    #[test]
+    fn test_cli_parse_update_vote_no() {
+        let cli = Cli::try_parse_from([
+            "outbe-cli",
+            "update",
+            "vote",
+            "--proposal-id",
+            "1",
+            "--no",
+        ]);
+        assert!(cli.is_ok());
+    }
+
+    fn mock_proposal_info(proposal_id: U256, version: ProtocolVersion) -> IGovernance::ProposalInfo {
+        let payload = encode_scheduled_update_payload(version, 1000, b"notes");
+        IGovernance::ProposalInfo {
+            proposalId: proposal_id,
+            proposer: Address::ZERO,
+            targetModule: UPDATE_TARGET_MODULE,
+            action: SCHEDULE_UPDATE_ACTION,
+            payload: payload.into(),
+            createdHeight: 10,
+            votingDeadlineHeight: 100,
+            status: IGovernance::ProposalStatus::Pending,
+            state: IGovernance::VoteTally { yes: 0, no: 0 },
+            votersCount: U256::ZERO,
+        }
+    }
+
     #[tokio::test]
-    async fn propose_sends_create_proposal_tx() {
+    async fn propose_sends_governance_create_proposal_tx() {
         let private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-        let call = IUpdate::createProposalCall {
-            version: encode_protocol_version(1, 2).into(),
-            activationHeight: 1000,
-            info: b"notes".to_vec().into(),
+        let version = encode_protocol_version(1, 2);
+        let payload = encode_scheduled_update_payload(version, 1000, b"notes");
+        let call = IGovernance::createProposalCall {
+            targetModule: UPDATE_TARGET_MODULE,
+            action: SCHEDULE_UPDATE_ACTION,
+            payload: payload.into(),
         };
-        let rpc = recording_send_tx_rpc(private_key, UPDATE_ADDRESS, call.abi_encode(), U256::ZERO)
-            .unwrap();
+        let rpc = recording_send_tx_rpc(
+            private_key,
+            GOVERNANCE_ADDRESS,
+            call.abi_encode(),
+            U256::ZERO,
+        )
+        .unwrap();
         UpdateCmd::Propose {
             version: Some("1.2".to_string()),
             activation_height: 1000,
             info: Some("notes".to_string()),
+            force: true,
+        }
+        .run(&rpc, Some(private_key))
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn vote_sends_governance_cast_vote_tx() {
+        let private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+        let proposal_id = U256::from(1);
+        let call = IGovernance::castVoteCall {
+            proposalId: proposal_id,
+            approve: true,
+        };
+        let rpc = recording_send_tx_rpc(
+            private_key,
+            GOVERNANCE_ADDRESS,
+            call.abi_encode(),
+            U256::ZERO,
+        )
+        .unwrap();
+        UpdateCmd::Vote {
+            proposal_id,
+            yes: true,
+            no: false,
             force: true,
         }
         .run(&rpc, Some(private_key))
@@ -404,10 +509,7 @@ mod tests {
             info: None,
             force: false,
         }
-        .run(
-            &mock,
-            Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"),
-        )
+        .run(&mock, Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"))
         .await
         .unwrap_err();
         assert!(err.to_string().contains("must be greater than active"));
@@ -415,25 +517,27 @@ mod tests {
 
     #[tokio::test]
     async fn vote_rejects_approve_when_binary_is_too_old() {
+        let proposal_id = U256::from(1);
+        let proposal = mock_proposal_info(proposal_id, encode_protocol_version(9, 0));
+        let mut map = HashMap::new();
+        map.insert(
+            (
+                GOVERNANCE_ADDRESS,
+                IGovernance::getProposalCall::SELECTOR,
+            ),
+            IGovernance::getProposalCall::abi_encode_returns(&proposal),
+        );
         let mock = MockRpc {
-            update_proposal: Ok(Some(serde_json::json!({
-                "proposalId": 1,
-                "version": encode_protocol_version(9, 0).raw(),
-                "status": "pending",
-                "state": { "yes": 0, "no": 0 }
-            }))),
+            eth_call_map: Some(call_map(map)),
             ..MockRpc::default()
         };
         let err = UpdateCmd::Vote {
-            proposal_id: U256::from(1),
+            proposal_id,
             yes: true,
             no: false,
             force: false,
         }
-        .run(
-            &mock,
-            Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"),
-        )
+        .run(&mock, Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"))
         .await
         .unwrap_err();
         assert!(err.to_string().contains("exceeds binary protocol version"));
@@ -447,17 +551,50 @@ mod tests {
             "minor": 2,
             "activationHeight": 500
         });
-        let pending = serde_json::json!([]);
         let waiting = serde_json::json!([]);
         let mock = MockRpc {
             update_active_version: Ok(active),
-            update_pending_proposals: Ok(pending),
-            update_waiting_proposals: Ok(waiting),
+            update_waiting_for_activation: Ok(waiting),
             ..MockRpc::default()
         };
         UpdateCmd::Status { proposal_id: None }
             .run(&mock, None)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn status_with_proposal_id_reads_governance_and_scheduled_update() {
+        let proposal_id = U256::from(1);
+        let version = encode_protocol_version(1, 2);
+        let proposal = mock_proposal_info(proposal_id, version);
+        let scheduled = serde_json::json!({
+            "proposalId": 1,
+            "version": version.raw(),
+            "activationHeight": 1000,
+            "status": "pending"
+        });
+
+        let mut map = HashMap::new();
+        map.insert(
+            (
+                GOVERNANCE_ADDRESS,
+                IGovernance::getProposalCall::SELECTOR,
+            ),
+            IGovernance::getProposalCall::abi_encode_returns(&proposal),
+        );
+
+        let mock = MockRpc {
+            eth_call_map: Some(call_map(map)),
+            update_scheduled_update: Ok(Some(scheduled)),
+            ..MockRpc::default()
+        };
+
+        UpdateCmd::Status {
+            proposal_id: Some(proposal_id),
+        }
+        .run(&mock, None)
+        .await
+        .unwrap();
     }
 }
