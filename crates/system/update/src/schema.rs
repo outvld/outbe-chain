@@ -28,7 +28,7 @@ impl ScheduledUpdateStatus {
     }
 }
 
-/// Scheduled update record keyed by governance `proposal_id`.
+/// Scheduled update record keyed by vote `proposal_id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[storage_record(exists_field = version)]
 pub struct ScheduledUpdateRecord {

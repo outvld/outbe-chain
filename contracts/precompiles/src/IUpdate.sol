@@ -3,7 +3,7 @@ pragma solidity ^0.8.30;
 
 /// @title IUpdate
 /// @notice Protocol update / hardfork precompile at 0x000000000000000000000000000000000000EE0B
-/// @dev This precompile is managed by governance, the governance proposal
+/// @dev This precompile is managed by vote; the proposal
 /// is handled by inner cross-module API after approval. (see: /crates/system/update/)
 interface IUpdate {
     enum ScheduledUpdateStatus {
@@ -22,7 +22,7 @@ interface IUpdate {
     /// @notice Emitted when the proposed upgrade is activated.
     event UpgradeActivated(uint32 version, uint64 activationHeight);
 
-    /// @notice Emitted when a new update was accepted by governance.
+    /// @notice Emitted when a new update was accepted by vote.
     event ScheduledUpdateCreated(
         uint256 indexed proposalId, uint32 version, uint64 activationHeight, bytes info
     );
@@ -37,7 +37,7 @@ interface IUpdate {
     /// @notice Returns true when `version` is active at the current height.
     function isVersionActive(uint32 version) external view returns (bool);
 
-    /// @notice Returns a scheduled update by governance proposal id.
+    /// @notice Returns a scheduled update by vote proposal id.
     function getScheduledUpdate(uint256 proposalId) external view returns (ScheduledUpdate memory);
 
     /// @notice Returns proposal ids with scheduled updates waiting for activation height.

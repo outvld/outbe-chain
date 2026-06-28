@@ -1,4 +1,4 @@
-//! `Governance` — reusable on-chain proposal/voting module (`0x…EE0C`).
+//! `Vote` — reusable on-chain proposal/voting module (`0x…EE0C`).
 //!
 //! Module-structure layout:
 //! - `schema.rs` — storage schema and records.
@@ -19,7 +19,7 @@ pub mod schema;
 pub mod state;
 pub mod targets;
 
-pub use schema::Governance;
+pub use schema::Vote;
 pub use state::{
     active_validator_addresses, calculate_vote_tally, ProposalInfo, ProposalStatus, VoteInfo,
     VoteKind, VoteTally,

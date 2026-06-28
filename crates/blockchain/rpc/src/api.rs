@@ -291,7 +291,7 @@ pub trait OutbeApi {
         &self,
     ) -> jsonrpsee::core::RpcResult<UpdateActiveVersionInfo>;
 
-    /// Returns a scheduled update by governance proposal id.
+    /// Returns a scheduled update by vote proposal id.
     #[method(name = "getUpdateScheduledUpdate")]
     async fn get_update_scheduled_update(
         &self,

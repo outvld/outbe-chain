@@ -44,8 +44,8 @@ fn schedule_update(
 ) {
     let payload = encode_scheduled_update_payload(version, activation, b"");
     update
-        .schedule_update_from_governance(proposal_id, &payload, current)
-        .expect("schedule_update_from_governance should succeed");
+        .schedule_update_from_vote(proposal_id, &payload, current)
+        .expect("schedule_update_from_vote should succeed");
 }
 
 fn dispatch_get_active_version_u32(storage: StorageHandle) -> u32 {
@@ -99,7 +99,7 @@ fn e2e_downgrade_schedule_rejected() {
 
         let payload = encode_scheduled_update_payload(V1_2, min_activation(current), b"");
         let err = update
-            .schedule_update_from_governance(U256::from(1), &payload, current)
+            .schedule_update_from_vote(U256::from(1), &payload, current)
             .unwrap_err();
         assert!(
             matches!(
@@ -120,7 +120,7 @@ fn e2e_conflicting_activation_heights_rejected() {
 
         let payload = encode_scheduled_update_payload(V1_3, activation, b"");
         let err = update
-            .schedule_update_from_governance(U256::from(2), &payload, current)
+            .schedule_update_from_vote(U256::from(2), &payload, current)
             .unwrap_err();
         assert!(
             matches!(
@@ -155,15 +155,9 @@ fn e2e_lifecycle_events_visible_in_transaction_receipts() {
 }
 
 #[test]
-fn e2e_legacy_governance_selectors_rejected_at_update_address() {
+fn e2e_legacy_vote_selectors_rejected_at_update_address() {
     with_runtime_at(100, |storage, _current| {
-        let err = dispatch(
-            storage,
-            &[0xb1, 0xa1, 0x41, 0x06],
-            PROPOSER,
-            U256::ZERO,
-        )
-        .unwrap_err();
+        let err = dispatch(storage, &[0xb1, 0xa1, 0x41, 0x06], PROPOSER, U256::ZERO).unwrap_err();
         assert!(matches!(err, PrecompileError::Revert(_)));
     });
 }
@@ -177,7 +171,7 @@ fn startup_binary_version_check_rejects_older_binary() {
 }
 
 #[test]
-fn startup_binary_version_check_allows_pre_governance_chain() {
+fn startup_binary_version_check_allows_pre_vote_chain() {
     outbe_update::startup::assert_binary_protocol_compatible(ProtocolVersion::ZERO).unwrap();
 }
 

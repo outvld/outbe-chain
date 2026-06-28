@@ -1,17 +1,17 @@
-use crate::errors::GovernanceError;
+use crate::errors::VoteError;
 use alloy_primitives::{Address, B256, U256};
 use outbe_macros::{contract, storage_record, storage_schema};
-use outbe_primitives::addresses::GOVERNANCE_ADDRESS;
+use outbe_primitives::addresses::VOTE_ADDRESS;
 use outbe_primitives::storage::{Storable, StorableType};
 
-/// Lifecycle status of a generic governance proposal.
+/// Lifecycle status of a generic proposal.
 ///
 /// Storage values match the Solidity `ProposalStatus` enum (0-based).
 ///
 /// Flow:
 /// 1. `Pending` — created, voting open until `voting_deadline_height`.
 /// 2. On deadline (`begin_block`): `Pending` -> `Approved` | `Rejected` | `Expired`.
-/// 3. For `Approved`, governance dispatches to the target-module handler; further
+/// 3. For `Approved`, vote dispatches to the target-module handler; further
 ///    state (e.g. scheduled update, activation) lives in that module, not here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -23,13 +23,13 @@ pub enum ProposalStatus {
 }
 
 impl ProposalStatus {
-    pub fn from_u8(value: u8) -> std::result::Result<Self, GovernanceError> {
+    pub fn from_u8(value: u8) -> std::result::Result<Self, VoteError> {
         match value {
             0 => Ok(Self::Pending),
             1 => Ok(Self::Approved),
             2 => Ok(Self::Rejected),
             3 => Ok(Self::Expired),
-            _ => Err(GovernanceError::InvalidProposalStatus),
+            _ => Err(VoteError::InvalidProposalStatus),
         }
     }
 
@@ -43,7 +43,7 @@ impl ProposalStatus {
     }
 }
 
-/// Generic governance proposal record keyed by `id`.
+/// Generic proposal record keyed by `id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[storage_record(exists_field = proposer)]
 pub struct ProposalRecord {
@@ -75,7 +75,7 @@ pub struct ProposalRecord {
 
 impl ProposalRecord {
     /// Reads the typed proposal status from storage.
-    pub fn proposal_status(&self) -> std::result::Result<ProposalStatus, GovernanceError> {
+    pub fn proposal_status(&self) -> std::result::Result<ProposalStatus, VoteError> {
         ProposalStatus::from_u8(self.status)
     }
 
@@ -119,7 +119,7 @@ impl Storable for VoteRecord {
     }
 }
 
-/// EVM storage layout for the generic Governance precompile.
+/// EVM storage layout for the generic Vote precompile.
 ///
 /// Storage slots:
 ///   0:  proposal_count
@@ -128,9 +128,9 @@ impl Storable for VoteRecord {
 ///   3:  votes_map: mapping(voteKey => 1-based proposal_voters index)
 ///   4:  proposal_voters: mapping(proposalId => VoteRecord[])
 #[storage_schema]
-#[contract(addr = GOVERNANCE_ADDRESS)]
-pub struct Governance {
-    /// Total number of governance proposals ever created.
+#[contract(addr = VOTE_ADDRESS)]
+pub struct Vote {
+    /// Total number of proposals ever created.
     #[attribute(order = 0)]
     pub proposal_count: outbe_primitives::storage::dsl::Value<U256>,
 

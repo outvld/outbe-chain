@@ -13,7 +13,7 @@ pub enum UpdateError {
     InvalidVersion,
     #[error("downgrade not allowed: new version must be greater than active version")]
     DowngradeNotAllowed,
-    #[error("invalid governance payload")]
+    #[error("invalid vote payload")]
     InvalidPayload,
     #[error("another scheduled update already uses this activation height")]
     ActivationConflict,

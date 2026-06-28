@@ -2,7 +2,7 @@
 //!
 //! All values are `const` and change only via hardfork.
 
-/// Minimum blocks between governance approval and activation height.
+/// Minimum blocks between vote approval and activation height.
 pub const MIN_ACTIVATION_BUFFER: u64 = 100;
 
 /// Current binary protocol version.

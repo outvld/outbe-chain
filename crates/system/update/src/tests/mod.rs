@@ -57,7 +57,7 @@ pub(super) fn schedule_update(
     current_height: u64,
 ) -> Result<()> {
     let payload = encode_scheduled_update_payload(version, activation_height, info);
-    update.schedule_update_from_governance(proposal_id, &payload, current_height)
+    update.schedule_update_from_vote(proposal_id, &payload, current_height)
 }
 
 /// Test-only helper: runs begin-block processing with an empty handler registry.

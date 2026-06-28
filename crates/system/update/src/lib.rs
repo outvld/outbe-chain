@@ -1,6 +1,6 @@
 //! `Update` — on-chain protocol version scheduling and activation.
 //!
-//! Governance owns proposal lifecycle; update stores scheduled upgrades and
+//! Vote owns proposal lifecycle; update stores scheduled upgrades and
 //! activates them at `activationHeight` via begin-block processing.
 
 pub mod api;

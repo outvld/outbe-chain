@@ -83,7 +83,7 @@ enum Commands {
         #[command(subcommand)]
         cmd: commands::tee::TeeCmd,
     },
-    /// On-chain upgrade governance.
+    /// On-chain upgrade voting.
     Update {
         #[command(subcommand)]
         cmd: commands::update::UpdateCmd,
@@ -221,13 +221,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_update_status_with_proposal_id() {
-        let cli = Cli::try_parse_from([
-            "outbe-cli",
-            "update",
-            "status",
-            "--proposal-id",
-            "1",
-        ]);
+        let cli = Cli::try_parse_from(["outbe-cli", "update", "status", "--proposal-id", "1"]);
         assert!(cli.is_ok());
     }
 

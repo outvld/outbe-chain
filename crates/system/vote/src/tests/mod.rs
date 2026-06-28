@@ -13,7 +13,7 @@ use outbe_update::payload::encode_scheduled_update_payload;
 
 use crate::constants::VOTING_WINDOW_BLOCKS;
 use crate::runtime::quorum_reached;
-use crate::schema::Governance;
+use crate::schema::Vote;
 use crate::schema::ProposalStatus;
 use crate::state::{calculate_vote_tally, vote_key, VoteKind, VoteTally};
 
@@ -49,7 +49,7 @@ pub(super) fn setup_default_validators(storage: StorageHandle) {
     register_active_validator(storage.clone(), VOTER_B, 3);
 }
 
-pub(super) fn with_governance<F: FnOnce(StorageHandle)>(f: F) {
+pub(super) fn with_vote<F: FnOnce(StorageHandle)>(f: F) {
     let mut provider = HashMapStorageProvider::new(1);
     let storage = StorageHandle::new(&mut provider);
     setup_default_validators(storage.clone());
@@ -60,11 +60,11 @@ fn block_ctx(storage: StorageHandle, block_number: u64) -> BlockRuntimeContext {
     BlockRuntimeContext::new(BlockContext::empty_for_tests(block_number, 0, 1), storage)
 }
 
-pub(super) trait GovernanceTestExt {
+pub(super) trait VoteTestExt {
     fn process_begin_block_test(&mut self, block_number: u64) -> Result<()>;
 }
 
-impl GovernanceTestExt for Governance<'_> {
+impl VoteTestExt for Vote<'_> {
     fn process_begin_block_test(&mut self, block_number: u64) -> Result<()> {
         let ctx = block_ctx(self.storage.clone(), block_number);
         self.process_begin_block(&ctx)
@@ -117,8 +117,8 @@ fn vote_key_depends_on_proposal_and_voter() {
 
 #[test]
 fn write_vote_appends_ordered_voters() {
-    with_governance(|storage| {
-        let mut governance = Governance::new(storage.clone());
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
         let current = 10u64;
         let proposal_id = governance
             .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"payload", current)
@@ -155,8 +155,8 @@ fn write_vote_appends_ordered_voters() {
 
 #[test]
 fn duplicate_vote_is_rejected() {
-    with_governance(|storage| {
-        let mut governance = Governance::new(storage.clone());
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
         let current = 20u64;
         let proposal_id = governance
             .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"", current)
@@ -183,8 +183,8 @@ fn duplicate_vote_is_rejected() {
 
 #[test]
 fn get_proposal_voters_pagination_is_deterministic() {
-    with_governance(|storage| {
-        let mut governance = Governance::new(storage.clone());
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
         let current = 30u64;
         let proposal_id = governance
             .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"", current)
@@ -222,8 +222,8 @@ fn get_proposal_voters_pagination_is_deterministic() {
 
 #[test]
 fn get_proposal_uses_active_set_at_read_time() {
-    with_governance(|storage| {
-        let mut governance = Governance::new(storage.clone());
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
         let current = 40u64;
         let proposal_id = governance
             .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"", current)
@@ -254,8 +254,8 @@ fn get_proposal_uses_active_set_at_read_time() {
 
 #[test]
 fn inactive_voter_is_ignored_at_deadline_tally() {
-    with_governance(|storage| {
-        let mut governance = Governance::new(storage.clone());
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
         let current = 100u64;
         let deadline = current + VOTING_WINDOW_BLOCKS + 1;
         let version = encode_protocol_version(1, 2);
@@ -304,8 +304,8 @@ fn inactive_voter_is_ignored_at_deadline_tally() {
 
 #[test]
 fn deadline_quorum_requires_two_thirds_of_active_set() {
-    with_governance(|storage| {
-        let mut governance = Governance::new(storage.clone());
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
         let current = 200u64;
         let proposal_id = governance
             .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"", current)
@@ -325,8 +325,8 @@ fn deadline_quorum_requires_two_thirds_of_active_set() {
 
 #[test]
 fn list_proposals_and_by_status_are_paginated() {
-    with_governance(|storage| {
-        let mut governance = Governance::new(storage.clone());
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
         let current = 300u64;
         let first = governance
             .create_proposal(PROPOSER, UPDATE_TARGET_MODULE, SCHEDULE_UPDATE_ACTION, b"one", current)

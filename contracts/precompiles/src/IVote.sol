@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.30;
 
-/// @title IGovernance
+/// @title IVote
 /// @notice Generic on-chain proposal/voting precompile at 0x000000000000000000000000000000000000EE0C
-interface IGovernance {
+interface IVote {
     enum ProposalStatus {
         Pending,
         Approved,
@@ -57,7 +57,7 @@ interface IGovernance {
     /// @notice Proposal was approved by majority (2/3).
     event ProposalApproved(uint256 indexed proposalId, VoteTally state);
 
-    /// @notice Creates a generic governance proposal.
+    /// @notice Creates a generic proposal.
     /// @param targetModule Target system module identifier.
     /// @param action Module-specific action identifier.
     /// @param payload Opaque action payload decoded only by the target module handler.

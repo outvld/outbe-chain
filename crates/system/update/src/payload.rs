@@ -1,4 +1,4 @@
-//! Governance payload encoding for scheduled updates.
+//! Vote payload encoding for scheduled updates.
 //!
 //! Layout: `version: u32 BE` | `activation_height: u64 BE` | `info: bytes`
 
@@ -7,7 +7,7 @@ use crate::ProtocolVersion;
 
 const HEADER_LEN: usize = 12;
 
-/// Decodes an approved governance payload into update fields.
+/// Decodes an approved vote payload into update fields.
 pub fn decode_scheduled_update_payload(
     payload: &[u8],
 ) -> std::result::Result<(ProtocolVersion, u64, Vec<u8>), UpdateError> {
@@ -28,7 +28,7 @@ pub fn decode_scheduled_update_payload(
     Ok((version, activation_height, info))
 }
 
-/// Encodes update fields into a governance payload.
+/// Encodes update fields into a vote payload.
 pub fn encode_scheduled_update_payload(
     version: ProtocolVersion,
     activation_height: u64,

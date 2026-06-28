@@ -1,18 +1,18 @@
 use alloy_primitives::U256;
 use alloy_sol_types::{SolCall, SolEvent};
 
-use outbe_primitives::addresses::GOVERNANCE_ADDRESS;
+use outbe_primitives::addresses::VOTE_ADDRESS;
 use outbe_primitives::error::PrecompileError;
 use outbe_primitives::storage::hashmap::HashMapStorageProvider;
 use outbe_primitives::storage::StorageHandle;
 
-use crate::precompile::{dispatch, IGovernance};
-use crate::schema::Governance;
+use crate::precompile::{dispatch, IVote};
+use crate::schema::Vote;
 use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
 use super::{setup_default_validators, PROPOSER, VOTER_A, VOTER_B};
 
-fn with_governance_provider<F: FnOnce(StorageHandle)>(
+fn with_vote_provider<F: FnOnce(StorageHandle)>(
     block_number: u64,
     f: F,
 ) -> HashMapStorageProvider {
@@ -26,15 +26,15 @@ fn with_governance_provider<F: FnOnce(StorageHandle)>(
 
 #[test]
 fn precompile_abi_compiles() {
-    let _ = IGovernance::createProposalCall::SIGNATURE;
-    let _ = IGovernance::castVoteCall::SIGNATURE;
-    let _ = IGovernance::getProposalCall::SIGNATURE;
+    let _ = IVote::createProposalCall::SIGNATURE;
+    let _ = IVote::castVoteCall::SIGNATURE;
+    let _ = IVote::getProposalCall::SIGNATURE;
 }
 
 #[test]
 fn dispatch_create_proposal_emits_event() {
-    let provider = with_governance_provider(100, |storage| {
-        let data = IGovernance::createProposalCall {
+    let provider = with_vote_provider(100, |storage| {
+        let data = IVote::createProposalCall {
             targetModule: UPDATE_TARGET_MODULE,
             action: SCHEDULE_UPDATE_ACTION,
             payload: b"payload".into(),
@@ -43,20 +43,20 @@ fn dispatch_create_proposal_emits_event() {
 
         let ret = dispatch(storage.clone(), &data, PROPOSER, U256::ZERO).unwrap();
         let proposal_id =
-            IGovernance::createProposalCall::abi_decode_returns(&ret).unwrap();
+            IVote::createProposalCall::abi_decode_returns(&ret).unwrap();
         assert_eq!(proposal_id, U256::from(1));
     });
 
     assert!(has_event(
         &provider,
-        IGovernance::ProposalCreated::SIGNATURE_HASH,
+        IVote::ProposalCreated::SIGNATURE_HASH,
     ));
 }
 
 #[test]
 fn dispatch_cast_vote_emits_event() {
-    let provider = with_governance_provider(100, |storage| {
-        let mut governance = Governance::new(storage.clone());
+    let provider = with_vote_provider(100, |storage| {
+        let mut governance = Vote::new(storage.clone());
         let proposal_id = governance
             .create_proposal(
                 PROPOSER,
@@ -67,7 +67,7 @@ fn dispatch_cast_vote_emits_event() {
             )
             .unwrap();
 
-        let data = IGovernance::castVoteCall {
+        let data = IVote::castVoteCall {
             proposalId: proposal_id,
             approve: true,
         }
@@ -75,13 +75,13 @@ fn dispatch_cast_vote_emits_event() {
         dispatch(storage.clone(), &data, VOTER_A, U256::ZERO).unwrap();
     });
 
-    assert!(has_event(&provider, IGovernance::VoteCast::SIGNATURE_HASH));
+    assert!(has_event(&provider, IVote::VoteCast::SIGNATURE_HASH));
 }
 
 #[test]
 fn dispatch_rejects_non_zero_value() {
-    with_governance_provider(100, |storage| {
-        let data = IGovernance::getProposalCall {
+    with_vote_provider(100, |storage| {
+        let data = IVote::getProposalCall {
             proposalId: U256::from(1),
         }
         .abi_encode();
@@ -95,8 +95,8 @@ fn dispatch_rejects_non_zero_value() {
 
 #[test]
 fn dispatch_views_return_abi_shaped_data() {
-    with_governance_provider(200, |storage| {
-        let mut governance = Governance::new(storage.clone());
+    with_vote_provider(200, |storage| {
+        let mut governance = Vote::new(storage.clone());
         let proposal_id = governance
             .create_proposal(
                 PROPOSER,
@@ -113,9 +113,9 @@ fn dispatch_views_return_abi_shaped_data() {
             .cast_vote_approve(proposal_id, VOTER_B, false, 202)
             .unwrap();
 
-        let get_data = IGovernance::getProposalCall { proposalId: proposal_id }.abi_encode();
+        let get_data = IVote::getProposalCall { proposalId: proposal_id }.abi_encode();
         let ret = dispatch(storage.clone(), &get_data, PROPOSER, U256::ZERO).unwrap();
-        let info = IGovernance::getProposalCall::abi_decode_returns(&ret).unwrap();
+        let info = IVote::getProposalCall::abi_decode_returns(&ret).unwrap();
         assert_eq!(info.proposalId, proposal_id);
         assert_eq!(info.proposer, PROPOSER);
         assert_eq!(info.targetModule, UPDATE_TARGET_MODULE);
@@ -125,7 +125,7 @@ fn dispatch_views_return_abi_shaped_data() {
         assert_eq!(info.state.no, 1);
         assert_eq!(info.votersCount, U256::from(2));
 
-        let voters_data = IGovernance::getProposalVotersCall {
+        let voters_data = IVote::getProposalVotersCall {
             proposalId: proposal_id,
             index: U256::ZERO,
             count: U256::from(10),
@@ -133,16 +133,16 @@ fn dispatch_views_return_abi_shaped_data() {
         .abi_encode();
         let voters_ret = dispatch(storage.clone(), &voters_data, PROPOSER, U256::ZERO).unwrap();
         let voters =
-            IGovernance::getProposalVotersCall::abi_decode_returns(&voters_ret).unwrap();
+            IVote::getProposalVotersCall::abi_decode_returns(&voters_ret).unwrap();
         assert_eq!(voters, vec![VOTER_A, VOTER_B]);
 
-        let list_data = IGovernance::listProposalsCall {
+        let list_data = IVote::listProposalsCall {
             index: U256::ZERO,
             count: U256::from(10),
         }
         .abi_encode();
         let list_ret = dispatch(storage, &list_data, PROPOSER, U256::ZERO).unwrap();
-        let ids = IGovernance::listProposalsCall::abi_decode_returns(&list_ret).unwrap();
+        let ids = IVote::listProposalsCall::abi_decode_returns(&list_ret).unwrap();
         assert_eq!(ids, vec![proposal_id]);
     });
 }
@@ -152,7 +152,7 @@ fn has_event(
     topic0: alloy_primitives::B256,
 ) -> bool {
     provider
-        .get_events(GOVERNANCE_ADDRESS)
+        .get_events(VOTE_ADDRESS)
         .iter()
         .any(|log| log.topics().first() == Some(&topic0))
 }

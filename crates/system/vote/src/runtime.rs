@@ -8,9 +8,9 @@ use outbe_validatorset::logic::status;
 use crate::constants::{
     MAX_PENDING_PROPOSALS, QUORUM_DENOMINATOR, QUORUM_NUMERATOR, VOTING_WINDOW_BLOCKS,
 };
-use crate::errors::GovernanceError;
-use crate::precompile::IGovernance;
-use crate::schema::Governance;
+use crate::errors::VoteError;
+use crate::precompile::IVote;
+use crate::schema::Vote;
 use crate::state::{active_validator_addresses, calculate_vote_tally, ProposalStatus, VoteKind};
 use crate::targets;
 
@@ -18,7 +18,7 @@ use crate::targets;
 pub fn ensure_active_validator(storage: StorageHandle<'_>, caller: Address) -> Result<()> {
     let vs = ValidatorSet::new(storage);
     if !matches!(vs.get_validator(caller)?, Some(record) if record.status == status::ACTIVE) {
-        return Err(GovernanceError::NotValidator.into());
+        return Err(VoteError::NotValidator.into());
     }
     Ok(())
 }
@@ -33,8 +33,8 @@ pub const fn quorum_reached(yes_votes: u64, active_validator_count: u32) -> bool
     yes * QUORUM_DENOMINATOR as u128 >= active * QUORUM_NUMERATOR as u128
 }
 
-impl Governance<'_> {
-    /// Creates a pending generic governance proposal.
+impl Vote<'_> {
+    /// Creates a pending generic proposal.
     pub fn create_proposal(
         &mut self,
         proposer: Address,
@@ -47,7 +47,7 @@ impl Governance<'_> {
 
         let pending_len = self.pending_proposal_ids.len()? as u32;
         if pending_len >= MAX_PENDING_PROPOSALS {
-            return Err(GovernanceError::TooManyPending.into());
+            return Err(VoteError::TooManyPending.into());
         }
 
         let voting_deadline = current_height.saturating_add(VOTING_WINDOW_BLOCKS);
@@ -75,15 +75,15 @@ impl Governance<'_> {
         let proposal = self
             .proposals
             .get(proposal_id)?
-            .ok_or(GovernanceError::ProposalNotFound)?;
+            .ok_or(VoteError::ProposalNotFound)?;
         if proposal.proposal_status()? != ProposalStatus::Pending {
-            return Err(GovernanceError::NotPending.into());
+            return Err(VoteError::NotPending.into());
         }
         if block_number > proposal.voting_deadline_height {
-            return Err(GovernanceError::VotingClosed.into());
+            return Err(VoteError::VotingClosed.into());
         }
         if self.read_vote(proposal_id, voter)?.is_some() {
-            return Err(GovernanceError::AlreadyVoted.into());
+            return Err(VoteError::AlreadyVoted.into());
         }
 
         self.write_vote(
@@ -103,7 +103,7 @@ impl Governance<'_> {
         let pending_ids = self.list_pending_proposal_ids()?;
         for proposal_id in pending_ids {
             let Some(proposal) = self.proposals.get(proposal_id)? else {
-                return Err(GovernanceError::ProposalNotFound.into());
+                return Err(VoteError::ProposalNotFound.into());
             };
             if proposal.proposal_status()? == ProposalStatus::Pending
                 && block_number > proposal.voting_deadline_height
@@ -118,7 +118,7 @@ impl Governance<'_> {
         let proposal = self
             .proposals
             .get(proposal_id)?
-            .ok_or(GovernanceError::ProposalNotFound)?;
+            .ok_or(VoteError::ProposalNotFound)?;
         if proposal.proposal_status()? != ProposalStatus::Pending {
             return Ok(());
         }
@@ -127,7 +127,7 @@ impl Governance<'_> {
         let tally = calculate_vote_tally(self, &proposal, &active)?;
         let vs = ValidatorSet::new(self.storage.clone());
         let active_count = vs.active_validator_count()?;
-        let vote_tally = IGovernance::VoteTally {
+        let vote_tally = IVote::VoteTally {
             yes: tally.yes,
             no: tally.no,
         };
@@ -136,14 +136,14 @@ impl Governance<'_> {
             match targets::dispatch_approved_proposal(ctx, proposal_id, &proposal) {
                 Ok(()) => {
                     self.set_proposal_status(proposal_id, ProposalStatus::Approved)?;
-                    self.emit(IGovernance::ProposalApproved {
+                    self.emit(IVote::ProposalApproved {
                         proposalId: proposal_id,
                         state: vote_tally,
                     })?;
                 }
                 Err(PrecompileError::Revert(_)) => {
                     self.set_proposal_status(proposal_id, ProposalStatus::Rejected)?;
-                    self.emit(IGovernance::ProposalRejected {
+                    self.emit(IVote::ProposalRejected {
                         proposalId: proposal_id,
                         state: vote_tally,
                         conflictingproposalId: U256::ZERO,
@@ -153,7 +153,7 @@ impl Governance<'_> {
             }
         } else {
             self.set_proposal_status(proposal_id, ProposalStatus::Expired)?;
-            self.emit(IGovernance::ProposalExpired {
+            self.emit(IVote::ProposalExpired {
                 proposalId: proposal_id,
                 state: vote_tally,
             })?;

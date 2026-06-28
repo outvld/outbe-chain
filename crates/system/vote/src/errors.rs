@@ -1,8 +1,8 @@
 use outbe_primitives::error::PrecompileError;
 
-/// Governance module errors.
+/// Vote module errors.
 #[derive(Debug, thiserror::Error)]
-pub enum GovernanceError {
+pub enum VoteError {
     #[error("caller is not an active validator")]
     NotValidator,
     #[error("proposal not found")]
@@ -13,20 +13,20 @@ pub enum GovernanceError {
     VotingClosed,
     #[error("validator has already voted on proposal")]
     AlreadyVoted,
-    #[error("too many pending governance proposals")]
+    #[error("too many pending proposals")]
     TooManyPending,
     #[error("invalid proposal status")]
     InvalidProposalStatus,
     #[error("invalid vote kind")]
     InvalidVoteKind,
-    #[error("unknown governance target module")]
+    #[error("unknown vote target module")]
     UnknownTargetModule,
-    #[error("unknown governance action")]
+    #[error("unknown vote action")]
     UnknownAction,
 }
 
-impl From<GovernanceError> for PrecompileError {
-    fn from(err: GovernanceError) -> Self {
+impl From<VoteError> for PrecompileError {
+    fn from(err: VoteError) -> Self {
         PrecompileError::Revert(err.to_string())
     }
 }

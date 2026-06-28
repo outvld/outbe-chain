@@ -1,22 +1,22 @@
-//! Upgrade operator commands: governance writes, update reads.
+//! Upgrade operator commands: vote writes, update reads.
 
 use alloy_primitives::U256;
 use alloy_sol_types::SolCall;
 use clap::Subcommand;
 use eyre::{Result, WrapErr};
-use outbe_governance::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
+use outbe_vote::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 use outbe_update::constants::PROTOCOL_VERSION;
 use outbe_update::payload::decode_scheduled_update_payload;
 use outbe_update::version::{format_protocol_version, try_parse_protocol_version, ProtocolVersionParseError};
 use outbe_update::{encode_scheduled_update_payload, ProtocolVersion};
 use serde_json::Value;
 
-use crate::abi::{IGovernance, GOVERNANCE_ADDRESS};
+use crate::abi::{IVote, VOTE_ADDRESS};
 use crate::rpc::Rpc;
 
 #[derive(Subcommand)]
 pub enum UpdateCmd {
-    /// Create an upgrade proposal via governance (active validator only).
+    /// Create an upgrade proposal via vote (active validator only).
     Propose {
         /// Protocol version as `major.minor` or raw `u32`. Defaults to this binary's version.
         #[arg(long)]
@@ -31,7 +31,7 @@ pub enum UpdateCmd {
         #[arg(long)]
         force: bool,
     },
-    /// Cast a governance vote on a pending proposal (active validator only).
+    /// Cast a vote on a pending proposal (active validator only).
     Vote {
         /// Proposal id.
         #[arg(long)]
@@ -48,7 +48,7 @@ pub enum UpdateCmd {
     },
     /// Show active version and proposal / scheduled-update status.
     Status {
-        /// Optional governance proposal id for detailed status.
+        /// Optional vote proposal id for detailed status.
         #[arg(long)]
         proposal_id: Option<U256>,
     },
@@ -143,7 +143,7 @@ fn ensure_approve_version_compatible(proposal_version: ProtocolVersion, binary: 
 }
 
 fn decode_update_fields_from_proposal(
-    proposal: &IGovernance::ProposalInfo,
+    proposal: &IVote::ProposalInfo,
 ) -> Result<(ProtocolVersion, u64, Vec<u8>)> {
     if proposal.targetModule != UPDATE_TARGET_MODULE || proposal.action != SCHEDULE_UPDATE_ACTION {
         eyre::bail!("proposal is not an update scheduling action");
@@ -152,17 +152,17 @@ fn decode_update_fields_from_proposal(
         .map_err(|err| eyre::eyre!("invalid update payload in proposal: {err}"))
 }
 
-async fn fetch_governance_proposal(
+async fn fetch_vote_proposal(
     client: &(impl Rpc + Sync),
     proposal_id: U256,
-) -> Result<IGovernance::ProposalInfo> {
-    let call = IGovernance::getProposalCall { proposalId: proposal_id };
+) -> Result<IVote::ProposalInfo> {
+    let call = IVote::getProposalCall { proposalId: proposal_id };
     let ret = client
-        .eth_call(GOVERNANCE_ADDRESS, &call.abi_encode())
+        .eth_call(VOTE_ADDRESS, &call.abi_encode())
         .await
-        .wrap_err("governance getProposal eth_call failed")?;
-    IGovernance::getProposalCall::abi_decode_returns(&ret)
-        .wrap_err("failed to decode governance proposal")
+        .wrap_err("vote getProposal eth_call failed")?;
+    IVote::getProposalCall::abi_decode_returns(&ret)
+        .wrap_err("failed to decode vote proposal")
 }
 
 async fn propose(
@@ -182,7 +182,7 @@ async fn propose(
     let info_bytes = parse_info_bytes(info)?;
     let payload = encode_scheduled_update_payload(version, activation_height, &info_bytes);
 
-    let call = IGovernance::createProposalCall {
+    let call = IVote::createProposalCall {
         targetModule: UPDATE_TARGET_MODULE,
         action: SCHEDULE_UPDATE_ACTION,
         payload: payload.into(),
@@ -190,7 +190,7 @@ async fn propose(
     let tx_hash = signer
         .send_tx(
             client,
-            GOVERNANCE_ADDRESS,
+            VOTE_ADDRESS,
             call.abi_encode(),
             U256::ZERO,
         )
@@ -210,20 +210,20 @@ async fn vote(
     force: bool,
 ) -> Result<()> {
     if approve && !force {
-        let proposal = fetch_governance_proposal(client, proposal_id).await?;
+        let proposal = fetch_vote_proposal(client, proposal_id).await?;
         let (proposal_version, _, _) = decode_update_fields_from_proposal(&proposal)?;
         ensure_approve_version_compatible(proposal_version, PROTOCOL_VERSION)?;
     }
 
     let signer = super::require_signer(private_key)?;
-    let call = IGovernance::castVoteCall {
+    let call = IVote::castVoteCall {
         proposalId: proposal_id,
         approve,
     };
     let tx_hash = signer
         .send_tx(
             client,
-            GOVERNANCE_ADDRESS,
+            VOTE_ADDRESS,
             call.abi_encode(),
             U256::ZERO,
         )
@@ -236,8 +236,8 @@ async fn vote(
 
 async fn status(client: &(impl Rpc + Sync), proposal_id: Option<U256>) -> Result<()> {
     if let Some(proposal_id) = proposal_id {
-        let proposal = fetch_governance_proposal(client, proposal_id).await?;
-        print_governance_proposal("Proposal", &proposal);
+        let proposal = fetch_vote_proposal(client, proposal_id).await?;
+        print_vote_proposal("Proposal", &proposal);
 
         if let Some(scheduled) = client
             .outbe_get_update_scheduled_update(proposal_id)
@@ -271,17 +271,17 @@ async fn status(client: &(impl Rpc + Sync), proposal_id: Option<U256>) -> Result
     Ok(())
 }
 
-fn proposal_status_label(status: IGovernance::ProposalStatus) -> &'static str {
+fn proposal_status_label(status: IVote::ProposalStatus) -> &'static str {
     match status {
-        IGovernance::ProposalStatus::Pending => "pending",
-        IGovernance::ProposalStatus::Approved => "approved",
-        IGovernance::ProposalStatus::Rejected => "rejected",
-        IGovernance::ProposalStatus::Expired => "expired",
+        IVote::ProposalStatus::Pending => "pending",
+        IVote::ProposalStatus::Approved => "approved",
+        IVote::ProposalStatus::Rejected => "rejected",
+        IVote::ProposalStatus::Expired => "expired",
         _ => "unknown",
     }
 }
 
-fn print_governance_proposal(label: &str, proposal: &IGovernance::ProposalInfo) {
+fn print_vote_proposal(label: &str, proposal: &IVote::ProposalInfo) {
     let proposal_id = proposal.proposalId;
     let status = proposal_status_label(proposal.status);
     let deadline = proposal.votingDeadlineHeight;
@@ -322,7 +322,7 @@ fn print_scheduled_update(label: &str, scheduled: &Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::abi::GOVERNANCE_ADDRESS;
+    use crate::abi::VOTE_ADDRESS;
     use crate::Cli;
     use crate::rpc::mock::{call_map, recording_send_tx_rpc, MockRpc};
     use alloy_primitives::Address;
@@ -422,9 +422,9 @@ mod tests {
         assert!(cli.is_ok());
     }
 
-    fn mock_proposal_info(proposal_id: U256, version: ProtocolVersion) -> IGovernance::ProposalInfo {
+    fn mock_proposal_info(proposal_id: U256, version: ProtocolVersion) -> IVote::ProposalInfo {
         let payload = encode_scheduled_update_payload(version, 1000, b"notes");
-        IGovernance::ProposalInfo {
+        IVote::ProposalInfo {
             proposalId: proposal_id,
             proposer: Address::ZERO,
             targetModule: UPDATE_TARGET_MODULE,
@@ -432,25 +432,25 @@ mod tests {
             payload: payload.into(),
             createdHeight: 10,
             votingDeadlineHeight: 100,
-            status: IGovernance::ProposalStatus::Pending,
-            state: IGovernance::VoteTally { yes: 0, no: 0 },
+            status: IVote::ProposalStatus::Pending,
+            state: IVote::VoteTally { yes: 0, no: 0 },
             votersCount: U256::ZERO,
         }
     }
 
     #[tokio::test]
-    async fn propose_sends_governance_create_proposal_tx() {
+    async fn propose_sends_vote_create_proposal_tx() {
         let private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
         let version = encode_protocol_version(1, 2);
         let payload = encode_scheduled_update_payload(version, 1000, b"notes");
-        let call = IGovernance::createProposalCall {
+        let call = IVote::createProposalCall {
             targetModule: UPDATE_TARGET_MODULE,
             action: SCHEDULE_UPDATE_ACTION,
             payload: payload.into(),
         };
         let rpc = recording_send_tx_rpc(
             private_key,
-            GOVERNANCE_ADDRESS,
+            VOTE_ADDRESS,
             call.abi_encode(),
             U256::ZERO,
         )
@@ -467,16 +467,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn vote_sends_governance_cast_vote_tx() {
+    async fn vote_sends_vote_cast_vote_tx() {
         let private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
         let proposal_id = U256::from(1);
-        let call = IGovernance::castVoteCall {
+        let call = IVote::castVoteCall {
             proposalId: proposal_id,
             approve: true,
         };
         let rpc = recording_send_tx_rpc(
             private_key,
-            GOVERNANCE_ADDRESS,
+            VOTE_ADDRESS,
             call.abi_encode(),
             U256::ZERO,
         )
@@ -522,10 +522,10 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             (
-                GOVERNANCE_ADDRESS,
-                IGovernance::getProposalCall::SELECTOR,
+                VOTE_ADDRESS,
+                IVote::getProposalCall::SELECTOR,
             ),
-            IGovernance::getProposalCall::abi_encode_returns(&proposal),
+            IVote::getProposalCall::abi_encode_returns(&proposal),
         );
         let mock = MockRpc {
             eth_call_map: Some(call_map(map)),
@@ -564,7 +564,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_with_proposal_id_reads_governance_and_scheduled_update() {
+    async fn status_with_proposal_id_reads_vote_and_scheduled_update() {
         let proposal_id = U256::from(1);
         let version = encode_protocol_version(1, 2);
         let proposal = mock_proposal_info(proposal_id, version);
@@ -578,10 +578,10 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             (
-                GOVERNANCE_ADDRESS,
-                IGovernance::getProposalCall::SELECTOR,
+                VOTE_ADDRESS,
+                IVote::getProposalCall::SELECTOR,
             ),
-            IGovernance::getProposalCall::abi_encode_returns(&proposal),
+            IVote::getProposalCall::abi_encode_returns(&proposal),
         );
 
         let mock = MockRpc {

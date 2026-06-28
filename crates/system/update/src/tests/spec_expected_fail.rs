@@ -103,7 +103,7 @@ fn rejects_activation_height_before_buffer() {
         let current = 100u64;
         let payload = encode_scheduled_update_payload(V1_2, current + 1, b"");
         let err = update
-            .schedule_update_from_governance(U256::from(1), &payload, current)
+            .schedule_update_from_vote(U256::from(1), &payload, current)
             .unwrap_err();
         assert!(matches!(
             err,

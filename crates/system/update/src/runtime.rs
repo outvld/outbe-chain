@@ -11,8 +11,8 @@ use crate::precompile::IUpdate;
 use crate::schema::{ScheduledUpdateStatus, Update};
 
 impl Update<'_> {
-    /// Schedules an update from an approved governance payload.
-    pub fn schedule_update_from_governance(
+    /// Schedules an update from an approved vote payload.
+    pub fn schedule_update_from_vote(
         &mut self,
         proposal_id: U256,
         payload: &[u8],

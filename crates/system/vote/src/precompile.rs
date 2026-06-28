@@ -1,4 +1,4 @@
-//! ABI surface and EVM dispatch for the Governance precompile.
+//! ABI surface and EVM dispatch for the Vote precompile.
 
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::{sol, SolInterface};
@@ -8,16 +8,16 @@ use outbe_primitives::error::Result;
 use outbe_primitives::storage::StorageHandle;
 
 use crate::api::{get_proposal, get_proposal_voters, list_proposals, list_proposals_by_status};
-use crate::errors::GovernanceError;
-use crate::schema::Governance;
+use crate::errors::VoteError;
+use crate::schema::Vote;
 use crate::state::{ProposalInfo, ProposalStatus, VoteTally};
 
 sol!(
     #![sol(alloy_sol_types = alloy_sol_types, extra_derives(Debug, PartialEq))]
-    "../../../contracts/precompiles/src/IGovernance.sol"
+    "../../../contracts/precompiles/src/IVote.sol"
 );
 
-/// Dispatches an ABI-encoded call to the Governance precompile.
+/// Dispatches an ABI-encoded call to the Vote precompile.
 pub fn dispatch(
     storage: StorageHandle<'_>,
     data: &[u8],
@@ -25,18 +25,18 @@ pub fn dispatch(
     value: U256,
 ) -> Result<Bytes> {
     reject_value(&value)?;
-    dispatch_call(data, IGovernance::IGovernanceCalls::abi_decode, |call| {
-        dispatch_governance_call(storage, call, caller)
+    dispatch_call(data, IVote::IVoteCalls::abi_decode, |call| {
+        dispatch_vote_call(storage, call, caller)
     })
 }
 
-fn dispatch_governance_call(
+fn dispatch_vote_call(
     storage: StorageHandle<'_>,
-    call: IGovernance::IGovernanceCalls,
+    call: IVote::IVoteCalls,
     caller: Address,
 ) -> Result<Bytes> {
-    let mut governance = Governance::new(storage.clone());
-    use IGovernance::IGovernanceCalls::*;
+    let mut governance = Vote::new(storage.clone());
+    use IVote::IVoteCalls::*;
     match call {
         createProposal(c) => mutate(c, caller, |sender, c| {
             let block_number = storage.block_number()?;
@@ -50,8 +50,8 @@ fn dispatch_governance_call(
             let record = governance
                 .proposals
                 .get(proposal_id)?
-                .ok_or(GovernanceError::ProposalNotFound)?;
-            governance.emit(IGovernance::ProposalCreated {
+                .ok_or(VoteError::ProposalNotFound)?;
+            governance.emit(IVote::ProposalCreated {
                 proposalId: proposal_id,
                 proposer: sender,
                 targetModule: c.targetModule,
@@ -64,7 +64,7 @@ fn dispatch_governance_call(
         castVote(c) => mutate_void(c, caller, |sender, c| {
             let block_number = storage.block_number()?;
             governance.cast_vote_approve(c.proposalId, sender, c.approve, block_number)?;
-            governance.emit(IGovernance::VoteCast {
+            governance.emit(IVote::VoteCast {
                 proposalId: c.proposalId,
                 validator: sender,
                 approve: c.approve,
@@ -73,7 +73,7 @@ fn dispatch_governance_call(
         }),
         getProposal(c) => view(c, |c| {
             let info = get_proposal(storage.clone(), c.proposalId)?
-                .ok_or(GovernanceError::ProposalNotFound)?;
+                .ok_or(VoteError::ProposalNotFound)?;
             Ok(proposal_info_return(&info))
         }),
         getProposalVoters(c) => view(c, |c| {
@@ -91,8 +91,8 @@ fn dispatch_governance_call(
     }
 }
 
-fn proposal_info_return(info: &ProposalInfo) -> IGovernance::ProposalInfo {
-    IGovernance::ProposalInfo {
+fn proposal_info_return(info: &ProposalInfo) -> IVote::ProposalInfo {
+    IVote::ProposalInfo {
         proposalId: info.id,
         proposer: info.proposer,
         targetModule: info.target_module,
@@ -106,28 +106,28 @@ fn proposal_info_return(info: &ProposalInfo) -> IGovernance::ProposalInfo {
     }
 }
 
-fn vote_tally_return(tally: &VoteTally) -> IGovernance::VoteTally {
-    IGovernance::VoteTally {
+fn vote_tally_return(tally: &VoteTally) -> IVote::VoteTally {
+    IVote::VoteTally {
         yes: tally.yes,
         no: tally.no,
     }
 }
 
-fn proposal_status_to_abi(status: ProposalStatus) -> IGovernance::ProposalStatus {
+fn proposal_status_to_abi(status: ProposalStatus) -> IVote::ProposalStatus {
     match status {
-        ProposalStatus::Pending => IGovernance::ProposalStatus::Pending,
-        ProposalStatus::Approved => IGovernance::ProposalStatus::Approved,
-        ProposalStatus::Rejected => IGovernance::ProposalStatus::Rejected,
-        ProposalStatus::Expired => IGovernance::ProposalStatus::Expired,
+        ProposalStatus::Pending => IVote::ProposalStatus::Pending,
+        ProposalStatus::Approved => IVote::ProposalStatus::Approved,
+        ProposalStatus::Rejected => IVote::ProposalStatus::Rejected,
+        ProposalStatus::Expired => IVote::ProposalStatus::Expired,
     }
 }
 
-fn proposal_status_from_abi(status: IGovernance::ProposalStatus) -> ProposalStatus {
+fn proposal_status_from_abi(status: IVote::ProposalStatus) -> ProposalStatus {
     match status {
-        IGovernance::ProposalStatus::Pending => ProposalStatus::Pending,
-        IGovernance::ProposalStatus::Approved => ProposalStatus::Approved,
-        IGovernance::ProposalStatus::Rejected => ProposalStatus::Rejected,
-        IGovernance::ProposalStatus::Expired => ProposalStatus::Expired,
+        IVote::ProposalStatus::Pending => ProposalStatus::Pending,
+        IVote::ProposalStatus::Approved => ProposalStatus::Approved,
+        IVote::ProposalStatus::Rejected => ProposalStatus::Rejected,
+        IVote::ProposalStatus::Expired => ProposalStatus::Expired,
         _ => ProposalStatus::Pending,
     }
 }

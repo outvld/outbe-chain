@@ -6741,11 +6741,11 @@ dependencies = [
  "hex",
  "k256 0.13.4",
  "outbe-common",
- "outbe-governance",
  "outbe-primitives",
  "outbe-rpc",
  "outbe-tee",
  "outbe-update",
+ "outbe-vote",
  "reqwest 0.12.28",
  "ring",
  "serde",
@@ -6986,7 +6986,6 @@ dependencies = [
  "outbe-fidelity",
  "outbe-gem",
  "outbe-gemfactory",
- "outbe-governance",
  "outbe-gratis",
  "outbe-gratisfactory",
  "outbe-gratispool",
@@ -7010,6 +7009,7 @@ dependencies = [
  "outbe-update",
  "outbe-validatorset",
  "outbe-vaultprovider",
+ "outbe-vote",
  "outbe-zerofee",
  "outbe-zkproof",
  "proptest",
@@ -7090,20 +7090,6 @@ dependencies = [
  "outbe-promisfactory",
  "outbe-vaultprovider",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "outbe-governance"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "alloy-sol-types",
- "outbe-macros",
- "outbe-primitives",
- "outbe-update",
- "outbe-validatorset",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -7668,6 +7654,20 @@ dependencies = [
  "outbe-macros",
  "outbe-primitives",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "outbe-vote"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "outbe-macros",
+ "outbe-primitives",
+ "outbe-update",
+ "outbe-validatorset",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

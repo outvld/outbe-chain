@@ -1,5 +1,5 @@
 [package]
-name = "outbe-governance"
+name = "outbe-vote"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

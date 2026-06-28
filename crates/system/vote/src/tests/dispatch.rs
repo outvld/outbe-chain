@@ -7,11 +7,11 @@ use outbe_update::schema::Update;
 use outbe_update::ProtocolVersion;
 
 use crate::constants::VOTING_WINDOW_BLOCKS;
-use crate::schema::Governance;
+use crate::schema::Vote;
 use crate::schema::ProposalStatus;
 use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
-use super::{GovernanceTestExt, PROPOSER, VOTER_A, VOTER_B, with_governance};
+use super::{VoteTestExt, PROPOSER, VOTER_A, VOTER_B, with_vote};
 
 const V1_2: ProtocolVersion = encode_protocol_version(1, 2);
 
@@ -20,9 +20,9 @@ fn min_activation_at(height: u64) -> u64 {
 }
 
 #[test]
-fn approved_governance_proposal_schedules_update_and_activates() {
-    with_governance(|storage| {
-        let mut governance = Governance::new(storage.clone());
+fn approved_vote_proposal_schedules_update_and_activates() {
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
         let current = 100u64;
         let deadline = current + VOTING_WINDOW_BLOCKS + 1;
         let activation = min_activation_at(deadline);
@@ -70,8 +70,8 @@ fn approved_governance_proposal_schedules_update_and_activates() {
 
 #[test]
 fn invalid_update_payload_marks_proposal_rejected() {
-    with_governance(|storage| {
-        let mut governance = Governance::new(storage.clone());
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
         let current = 200u64;
         let proposal_id = governance
             .create_proposal(

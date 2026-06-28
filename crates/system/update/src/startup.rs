@@ -8,7 +8,7 @@ use crate::ProtocolVersion;
 
 /// Returns `Ok(())` when `binary_version` is new enough for `active_version`.
 ///
-/// Fresh/pre-governance chains use `active_version == 0` and always pass.
+/// Fresh/pre-vote chains use `active_version == 0` and always pass.
 pub fn assert_binary_protocol_compatible(active_version: ProtocolVersion) -> Result<(), String> {
     if active_version.is_zero() || active_version <= PROTOCOL_VERSION {
         return Ok(());
@@ -48,7 +48,7 @@ mod tests {
     use crate::encode_protocol_version;
 
     #[test]
-    fn allows_pre_governance_active_version_zero() {
+    fn allows_pre_vote_active_version_zero() {
         assert_binary_protocol_compatible(ProtocolVersion::ZERO).unwrap();
     }
 

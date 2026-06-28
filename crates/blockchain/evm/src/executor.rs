@@ -64,7 +64,7 @@ pub mod marker_addresses {
     use alloy_primitives::Address;
     use outbe_primitives::addresses::*;
 
-    pub const OUTBE_RUNTIME_MARKER_ADDRESSES: [Address; 35] = [
+    pub const OUTBE_RUNTIME_MARKER_ADDRESSES: [Address; 36] = [
         GRATIS_ADDRESS,
         GRATIS_FACTORY_ADDRESS,
         GRATIS_POOL_ADDRESS,
@@ -114,6 +114,7 @@ pub mod marker_addresses {
         // preservation path (reth22-1 class).
         TEE_REGISTRY_ADDRESS,
         UPDATE_ADDRESS,
+        VOTE_ADDRESS,
     ];
 }
 
@@ -399,7 +400,7 @@ where
 /// against `HashMapStorageProvider`. Ordering is load-bearing:
 ///
 /// 1. Genesis-state validation (blocks 0/1 only, if consensus config was supplied).
-/// 2. `GovernanceLifecycle::begin_block` — tally expired proposals and dispatch approved ones.
+/// 2. `VoteLifecycle::begin_block` — tally expired proposals and dispatch approved ones.
 /// 3. `UpdateLifecycle::begin_block_with_handlers` — activate scheduled updates at activation height.
 /// 4. `RewardsLifecycle::begin_block` — locks in `genesis_utc_day` on
 ///    block 0; the per-block emission and per-day settle paths have
@@ -431,8 +432,8 @@ pub fn run_outbe_pre_execution_hooks(
         }
     }
 
-    // Governance: tally expired proposals and dispatch approved ones.
-    <outbe_governance::lifecycle::GovernanceLifecycle as BlockLifecycle>::begin_block(hook_ctx)?;
+    // Vote: tally expired proposals and dispatch approved ones.
+    <outbe_vote::lifecycle::VoteLifecycle as BlockLifecycle>::begin_block(hook_ctx)?;
 
     // Update: activate scheduled updates at activation height.
     outbe_update::lifecycle::UpdateLifecycle::begin_block_with_handlers(

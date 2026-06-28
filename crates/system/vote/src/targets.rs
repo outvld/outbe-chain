@@ -1,11 +1,11 @@
-//! Compile-time registry of governance target-module handlers.
+//! Compile-time registry of vote target-module handlers.
 
 use alloy_primitives::{B256, U256};
 use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::Result;
 use outbe_update::schema::Update;
 
-use crate::errors::GovernanceError;
+use crate::errors::VoteError;
 use crate::schema::ProposalRecord;
 
 /// Target module id for protocol update scheduling (`keccak256("outbe.module.update")`).
@@ -26,13 +26,13 @@ pub fn dispatch_approved_proposal(
     proposal: &ProposalRecord,
 ) -> Result<()> {
     if proposal.target_module != UPDATE_TARGET_MODULE {
-        return Err(GovernanceError::UnknownTargetModule.into());
+        return Err(VoteError::UnknownTargetModule.into());
     }
     if proposal.action != SCHEDULE_UPDATE_ACTION {
-        return Err(GovernanceError::UnknownAction.into());
+        return Err(VoteError::UnknownAction.into());
     }
 
-    Update::new(ctx.storage.clone()).schedule_update_from_governance(
+    Update::new(ctx.storage.clone()).schedule_update_from_vote(
         proposal_id,
         &proposal.payload,
         ctx.block.block_number,

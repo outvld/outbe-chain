@@ -5,8 +5,8 @@ use outbe_validatorset::contract::ValidatorSet;
 use tracing::warn;
 
 use crate::constants::MAX_PAGE_SIZE;
-use crate::errors::GovernanceError;
-use crate::schema::{Governance, ProposalRecord, VoteRecord};
+use crate::errors::VoteError;
+use crate::schema::{Vote, ProposalRecord, VoteRecord};
 
 pub use crate::schema::ProposalStatus;
 
@@ -19,11 +19,11 @@ pub enum VoteKind {
 }
 
 impl VoteKind {
-    pub fn from_u8(value: u8) -> std::result::Result<Self, GovernanceError> {
+    pub fn from_u8(value: u8) -> std::result::Result<Self, VoteError> {
         match value {
             0 => Ok(Self::No),
             1 => Ok(Self::Yes),
-            _ => Err(GovernanceError::InvalidVoteKind),
+            _ => Err(VoteError::InvalidVoteKind),
         }
     }
 
@@ -52,7 +52,7 @@ pub struct VoteTally {
     pub no: u64,
 }
 
-/// `IGovernance.ProposalInfo` — external view with computed tally, no voter list.
+/// `IVote.ProposalInfo` — external view with computed tally, no voter list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProposalInfo {
     pub id: U256,
@@ -80,7 +80,7 @@ impl VoteRecord {
     pub fn into_vote_info(
         self,
         proposal_id: U256,
-    ) -> std::result::Result<VoteInfo, GovernanceError> {
+    ) -> std::result::Result<VoteInfo, VoteError> {
         Ok(VoteInfo {
             proposal_id,
             voter: self.voter,
@@ -120,7 +120,7 @@ fn clamp_page(index: U256, count: U256) -> (usize, usize) {
 
 /// Recalculates yes/no counts from stored voters filtered by the active validator set.
 pub fn calculate_vote_tally(
-    governance: &Governance<'_>,
+    governance: &Vote<'_>,
     proposal: &ProposalRecord,
     active_validators: &[Address],
 ) -> Result<VoteTally> {
@@ -138,7 +138,7 @@ pub fn calculate_vote_tally(
     Ok(VoteTally { yes, no })
 }
 
-impl<'storage> Governance<'storage> {
+impl<'storage> Vote<'storage> {
     /// Returns the next proposal id without incrementing the counter.
     pub fn peek_next_proposal_id(&self) -> Result<U256> {
         let current = self.proposal_count.read()?;
@@ -199,7 +199,7 @@ impl<'storage> Governance<'storage> {
         self
             .proposals
             .get(proposal_id)?
-            .ok_or(GovernanceError::ProposalNotFound)?;
+            .ok_or(VoteError::ProposalNotFound)?;
         let (index, count) = clamp_page(index, count);
         let voters = self.proposal_voters.list(&proposal_id);
         let len = voters.len()? as usize;
@@ -219,7 +219,7 @@ impl<'storage> Governance<'storage> {
     pub fn read_proposal_voters(&self, proposal_id: U256) -> Result<Vec<Address>> {
         self.proposals
             .get(proposal_id)?
-            .ok_or(GovernanceError::ProposalNotFound)?;
+            .ok_or(VoteError::ProposalNotFound)?;
         Ok(self
             .proposal_voters
             .list(&proposal_id)
@@ -311,7 +311,7 @@ impl<'storage> Governance<'storage> {
         self
             .proposals
             .get(proposal_id)?
-            .ok_or(GovernanceError::ProposalNotFound)?;
+            .ok_or(VoteError::ProposalNotFound)?;
         let votes = self.proposal_voters.list(&proposal_id);
         let index = votes.len()?;
         votes.push(VoteRecord {
@@ -331,7 +331,7 @@ impl<'storage> Governance<'storage> {
         let mut proposal = self
             .proposals
             .get(proposal_id)?
-            .ok_or(GovernanceError::ProposalNotFound)?;
+            .ok_or(VoteError::ProposalNotFound)?;
         let old_status = proposal.proposal_status()?;
 
         if old_status == new_status {
