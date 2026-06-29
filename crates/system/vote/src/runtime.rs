@@ -10,7 +10,7 @@ use crate::constants::{
     QUORUM_NUMERATOR, VOTING_WINDOW_BLOCKS,
 };
 use crate::errors::VoteError;
-use crate::precompile::IVote;
+use crate::notify::ProposalFinalization;
 use crate::schema::Vote;
 use crate::state::{active_validator_addresses, calculate_vote_tally, ProposalStatus, VoteKind};
 use crate::targets;
@@ -57,7 +57,7 @@ impl Vote<'_> {
         }
 
         let voting_deadline = current_height.saturating_add(VOTING_WINDOW_BLOCKS);
-        self.write_proposal(
+        let proposal_id = self.write_proposal(
             proposer,
             target_module,
             action,
@@ -65,7 +65,17 @@ impl Vote<'_> {
             current_height,
             voting_deadline,
             ProposalStatus::Pending,
-        )
+        )?;
+        self.notify_proposal_created(
+            current_height,
+            proposal_id,
+            proposer,
+            target_module,
+            action,
+            payload,
+            voting_deadline,
+        )?;
+        Ok(proposal_id)
     }
 
     /// ABI entry: `castVote(uint256 proposalId, bool approve)`.
@@ -97,7 +107,9 @@ impl Vote<'_> {
             voter,
             VoteKind::from_approve(approve),
             block_number,
-        )
+        )?;
+        self.notify_vote_cast(block_number, proposal_id, voter, approve)?;
+        Ok(())
     }
 
     /// Tally proposals whose voting windows have closed.
@@ -133,37 +145,25 @@ impl Vote<'_> {
         let tally = calculate_vote_tally(self, &proposal, &active)?;
         let vs = ValidatorSet::new(self.storage.clone());
         let active_count = vs.active_validator_count()?;
-        let vote_tally = IVote::VoteTally {
-            yes: tally.yes,
-            no: tally.no,
-        };
+        let block_number = ctx.block.block_number;
 
-        if quorum_reached(tally.yes, active_count) {
+        let outcome = if quorum_reached(tally.yes, active_count) {
             match targets::dispatch_approved_proposal(ctx, proposal_id, &proposal) {
                 Ok(()) => {
                     self.set_proposal_status(proposal_id, ProposalStatus::Approved)?;
-                    self.emit(IVote::ProposalApproved {
-                        proposalId: proposal_id,
-                        state: vote_tally,
-                    })?;
+                    ProposalFinalization::Approved
                 }
-                Err(PrecompileError::Revert(_)) => {
+                Err(PrecompileError::Revert(reason)) => {
                     self.set_proposal_status(proposal_id, ProposalStatus::Rejected)?;
-                    self.emit(IVote::ProposalRejected {
-                        proposalId: proposal_id,
-                        state: vote_tally,
-                        conflictingproposalId: U256::ZERO,
-                    })?;
+                    ProposalFinalization::Rejected { reason }
                 }
                 Err(err) => return Err(err),
             }
         } else {
             self.set_proposal_status(proposal_id, ProposalStatus::Expired)?;
-            self.emit(IVote::ProposalExpired {
-                proposalId: proposal_id,
-                state: vote_tally,
-            })?;
-        }
-        Ok(())
+            ProposalFinalization::Expired
+        };
+
+        self.notify_proposal_finalized(block_number, &proposal, &tally, active_count, outcome)
     }
 }

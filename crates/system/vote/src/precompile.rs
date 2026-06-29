@@ -40,36 +40,17 @@ fn dispatch_vote_call(
     match call {
         createProposal(c) => mutate(c, caller, |sender, c| {
             let block_number = storage.block_number()?;
-            let proposal_id = governance.create_proposal(
+            governance.create_proposal(
                 sender,
                 c.targetModule,
                 c.action,
                 c.payload.as_ref(),
                 block_number,
-            )?;
-            let record = governance
-                .proposals
-                .get(proposal_id)?
-                .ok_or(VoteError::ProposalNotFound)?;
-            governance.emit(IVote::ProposalCreated {
-                proposalId: proposal_id,
-                proposer: sender,
-                targetModule: c.targetModule,
-                action: c.action,
-                payload: c.payload.clone(),
-                votingDeadlineHeight: record.voting_deadline_height,
-            })?;
-            Ok(proposal_id)
+            )
         }),
         castVote(c) => mutate_void(c, caller, |sender, c| {
             let block_number = storage.block_number()?;
-            governance.cast_vote_approve(c.proposalId, sender, c.approve, block_number)?;
-            governance.emit(IVote::VoteCast {
-                proposalId: c.proposalId,
-                validator: sender,
-                approve: c.approve,
-            })?;
-            Ok(())
+            governance.cast_vote_approve(c.proposalId, sender, c.approve, block_number)
         }),
         getProposal(c) => view(c, |c| {
             let info =

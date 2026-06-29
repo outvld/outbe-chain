@@ -326,6 +326,14 @@ fn run_node() -> eyre::Result<()> {
             );
         }
 
+        if let Err(error) = outbe_primitives::governance_journal::init(&consensus_storage) {
+            tracing::warn!(
+                target: "outbe::governance::journal",
+                %error,
+                "failed to initialize governance journal — events will not be persisted to a sidecar file",
+            );
+        }
+
         let runtime_config = commonware_runtime::tokio::Config::default()
             .with_tcp_nodelay(Some(true))
             .with_worker_threads(args.worker_threads)

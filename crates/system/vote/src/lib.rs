@@ -13,6 +13,7 @@ pub mod constants;
 pub mod errors;
 pub mod events;
 pub mod lifecycle;
+pub mod notify;
 pub mod precompile;
 pub mod runtime;
 pub mod schema;
