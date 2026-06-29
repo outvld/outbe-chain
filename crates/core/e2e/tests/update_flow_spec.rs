@@ -3,11 +3,12 @@
 //! Complements crate-local unit tests by wiring validator set, vote tallying,
 //! update scheduling/activation, and (where needed) pre-execution hooks in one runtime.
 
-use alloy_primitives::{address, Address, B256, U256};
+use alloy_primitives::{address, Address, B256, Log, U256};
 use alloy_sol_types::{SolCall, SolEvent};
 
 use outbe_evm::executor::run_outbe_pre_execution_hooks;
 use outbe_primitives::addresses::UPDATE_ADDRESS;
+use outbe_primitives::hook_events::partition_hook_events;
 use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
 use outbe_primitives::error::PrecompileError;
 use outbe_primitives::storage::{hashmap::HashMapStorageProvider, StorageHandle};
@@ -259,6 +260,39 @@ fn lifecycle_events_visible_in_provider() {
         &provider,
         IUpdate::UpgradeActivated::SIGNATURE_HASH
     ));
+}
+
+#[test]
+fn lifecycle_events_visible_in_hook_events_receipt_partition() {
+    let mut provider = HashMapStorageProvider::new(CHAIN_ID);
+    provider.set_block_number(100);
+    let storage = StorageHandle::new(&mut provider);
+
+    let activation = min_activation(100);
+    let proposal_id = U256::from(1);
+    let mut update = Update::new(storage.clone());
+    schedule_update(&mut update, proposal_id, V1_2, activation, 100);
+    run_update_begin_block(storage, activation);
+
+    let hook_logs: Vec<Log> = provider
+        .get_events(UPDATE_ADDRESS)
+        .iter()
+        .map(|data| Log {
+            address: UPDATE_ADDRESS,
+            data: data.clone(),
+        })
+        .collect();
+    let (whitelisted, tracing_only) = partition_hook_events(&hook_logs);
+    assert!(
+        whitelisted
+            .iter()
+            .any(|log| log.data.topics().first() == Some(&IUpdate::UpgradeActivated::SIGNATURE_HASH)),
+        "whitelisted update hook events must include UpgradeActivated for HookEvents receipt"
+    );
+    assert!(
+        tracing_only.is_empty(),
+        "update activation events must not be tracing-only"
+    );
 }
 
 #[test]

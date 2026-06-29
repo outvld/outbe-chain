@@ -437,6 +437,7 @@ mod tests {
                 },
                 SystemTxInputV2::CycleTick,
                 SystemTxInputV2::OracleSlashWindow,
+                SystemTxInputV2::HookEvents,
             ],
             outbe_primitives::chain::CHAIN_ID,
         );
@@ -502,6 +503,7 @@ mod tests {
                     artifact: tx_artifact,
                 },
                 SystemTxInputV2::OracleSlashWindow,
+                SystemTxInputV2::HookEvents,
             ],
             outbe_primitives::chain::CHAIN_ID,
         );

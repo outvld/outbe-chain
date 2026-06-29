@@ -19,6 +19,7 @@ pub mod protocol_schedule;
 pub mod reshare_artifact;
 pub mod signer;
 pub mod governance_journal;
+pub mod hook_events;
 pub mod slashing_journal;
 pub mod storage;
 pub mod system_tx;

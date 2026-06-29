@@ -28,7 +28,9 @@ fn block_1_body_index_map_is_cycle_boundary_oracle() {
     );
     let oracle = boundary.advance_after_commit(true, false);
     assert_eq!(oracle, SystemTxPhase::OracleSlashWindow { body_index: 2 });
-    let done = oracle.advance_after_commit(true, false);
+    let hook_events = oracle.advance_after_commit(true, false);
+    assert_eq!(hook_events, SystemTxPhase::HookEvents { body_index: 3 });
+    let done = hook_events.advance_after_commit(true, false);
     assert_eq!(done, SystemTxPhase::UserTxs);
 }
 

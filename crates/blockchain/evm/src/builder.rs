@@ -663,11 +663,11 @@ mod tests {
                 .expect("begin-zone system txs must build");
             // Base block: no BoundaryOutcome, so the begin-zone is exactly
             // CertifiedParentAccounting + LateFinalizeCredits + CycleTick +
-            // OracleSlashWindow.
+            // OracleSlashWindow + HookEvents.
             assert_eq!(
                 begin_system_txs.len(),
-                4,
-                "block 2 base-block begin-zone must be Phase 1 + LateFinalizeCredits + CycleTick + OracleSlashWindow",
+                5,
+                "block 2 base-block begin-zone must be Phase 1 + LateFinalizeCredits + CycleTick + OracleSlashWindow + HookEvents",
             );
             for tx in begin_system_txs {
                 builder

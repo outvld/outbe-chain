@@ -20,6 +20,7 @@ use outbe_primitives::{
     consensus::{ConsensusExecutionBridge, GenesisValidators},
     consensus_metadata::CertifiedParentAccountingMetadata,
     error::{PrecompileError, Result as OutbeResult},
+    hook_events::partition_hook_events,
     reshare_artifact::{
         decode_outbe_block_artifacts, ConsensusHeaderArtifact, ExecutionSummaryArtifact,
     },
@@ -739,6 +740,9 @@ pub struct OutbeBlockExecutor<'a, Evm> {
     /// on the validator path (the body carries it via `expected_begin_system_txs`)
     /// and until the tribute-DKG bootstrap producer supplies a payload.
     pending_tee_bootstrap: Option<outbe_primitives::tee_bootstrap::TeeBootstrapPayload>,
+    /// Whitelisted pre-exec hook logs published through the mandatory
+    /// `HookEvents` system tx receipt at the end of the begin zone.
+    whitelisted_hook_event_logs: Vec<Log>,
     /// Number of zero-fee soft-failure receipts emitted in THIS
     /// block. Bounds block-stuffing by zero-cost 21k soft-failures (see
     /// [`Self::record_zero_fee_soft_failure`]). The executor is constructed
@@ -816,6 +820,7 @@ impl<'a, Evm> OutbeBlockExecutor<'a, Evm> {
             // proposer-only; set via `with_pending_tee_bootstrap` from the
             // execution ctx. `None` keeps the begin-zone unchanged.
             pending_tee_bootstrap: None,
+            whitelisted_hook_event_logs: Vec::new(),
             zero_fee_soft_failures: 0,
         }
     }
@@ -994,6 +999,41 @@ impl<'a, Evm> OutbeBlockExecutor<'a, Evm> {
             .inner
             .block_state_gas_used
             .saturating_add(Self::SOFT_FAILURE_GAS);
+    }
+
+    /// Pushes a `status=1` synthetic receipt for the mandatory `HookEvents` system
+    /// tx, carrying whitelisted pre-exec hook logs without re-running lifecycle hooks.
+    pub(crate) fn push_hook_events_receipt(
+        &mut self,
+        tx_type: alloy_consensus::TxType,
+        logs: Vec<Log>,
+        visible_gas_used: u64,
+    ) -> Result<GasOutput, BlockExecutionError> {
+        let user_cumulative_tx_gas = self
+            .inner
+            .cumulative_tx_gas_used
+            .checked_add(visible_gas_used)
+            .ok_or_else(|| {
+                BlockExecutionError::Internal(InternalBlockExecutionError::Other(
+                    "HookEvents visible gas overflow".into(),
+                ))
+            })?;
+        self.inner.receipts.push(Receipt {
+            tx_type,
+            success: true,
+            cumulative_gas_used: user_cumulative_tx_gas,
+            logs,
+        });
+        self.inner.cumulative_tx_gas_used = user_cumulative_tx_gas;
+        self.inner.block_regular_gas_used = self
+            .inner
+            .block_regular_gas_used
+            .saturating_add(visible_gas_used);
+        self.inner.block_state_gas_used = self
+            .inner
+            .block_state_gas_used
+            .saturating_add(visible_gas_used);
+        Ok(GasOutput::new(visible_gas_used))
     }
 }
 
@@ -1540,6 +1580,23 @@ where
                 ));
             }
             system_txs.push((SystemTxKind::OracleSlashWindow, input, None));
+            ordinal += 1;
+        }
+
+        if block_number >= 1 {
+            let input = if verifier_mode {
+                self.expected_begin_input(ordinal)?
+            } else {
+                SystemTxInputV2::HookEvents
+            };
+            if !matches!(input, SystemTxInputV2::HookEvents) {
+                return Err(BlockExecutionError::Internal(
+                    InternalBlockExecutionError::Other(
+                        format!("expected HookEvents system tx at ordinal {ordinal}").into(),
+                    ),
+                ));
+            }
+            system_txs.push((SystemTxKind::HookEvents, input, None));
         }
 
         Ok(system_txs)
@@ -2290,8 +2347,8 @@ where
         // Provider dropped here — mutable DB borrow released.
 
         // Log hook events via tracing for operator observability.
-        // These events are emitted during tally/slash/S-curve hooks and are not
-        // part of EVM transaction receipts.
+        // Whitelisted addresses are published through the mandatory HookEvents
+        // system tx receipt; non-whitelisted hook events stay tracing-only.
         for event in &hook_events {
             tracing::info!(
                 target: "outbe::hooks",
@@ -2301,6 +2358,9 @@ where
                 "hook event emitted"
             );
         }
+
+        let (whitelisted_hook_logs, _tracing_only_hook_logs) = partition_hook_events(&hook_events);
+        self.whitelisted_hook_event_logs = whitelisted_hook_logs;
 
         // 6. Notify reth's parallel state root task about all pre-exec hook changes.
         //    These are outbe lifecycle ticks (Rewards / ValidatorSet /
@@ -2474,6 +2534,24 @@ where
                         .into(),
                     ),
                 ));
+            }
+
+            if expected_phase == SystemTxKind::HookEvents {
+                let has_boundary_outcome = matches!(
+                    block_artifacts.consensus_header_artifact,
+                    Some(ConsensusHeaderArtifact::BoundaryOutcome(_))
+                );
+                let has_tee_bootstrap = self.block_has_tee_bootstrap();
+                let logs = std::mem::take(&mut self.whitelisted_hook_event_logs);
+                let commit_outcome = self
+                    .push_hook_events_receipt(tx.tx_type(), logs, visible_gas_used)
+                    .map(Some);
+                if commit_outcome.is_ok() {
+                    self.system_tx_phase_cursor = self
+                        .system_tx_phase_cursor
+                        .advance_after_commit(has_boundary_outcome, has_tee_bootstrap);
+                }
+                return commit_outcome;
             }
 
             let phase_context = PreloadedSystemTxContext {
@@ -2992,13 +3070,14 @@ mod tests {
     use alloy_sol_types::SolCall;
     use outbe_primitives::addresses::{
         CYCLE_ADDRESS, ORACLE_ADDRESS, OUTBE_SYSTEM_TX_ADDRESS, REWARDS_ADDRESS,
-        SLASH_INDICATOR_ADDRESS, STAKING_ADDRESS,
+        SLASH_INDICATOR_ADDRESS, STAKING_ADDRESS, UPDATE_ADDRESS,
     };
     use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
     use outbe_primitives::consensus::{
         ConsensusExecutionBridge, GenesisValidator, GenesisValidators,
     };
     use outbe_primitives::consensus_metadata::CertifiedParentAccountingMetadata;
+    use outbe_primitives::hook_events::partition_hook_events;
     use outbe_primitives::reshare_artifact::{
         encode_outbe_block_artifacts, ConsensusHeaderArtifact, ExecutionSummaryArtifact,
         OutbeBlockArtifacts,
@@ -3428,9 +3507,9 @@ mod tests {
         let proposer = signer.address();
         let config = OutbeEvmConfig::new(test_chain_spec()).with_evm_signer(signer);
 
-        // Block 1, empty extra_data: begin-zone is CycleTick + OracleSlashWindow.
+        // Block 1, empty extra_data: begin-zone is CycleTick + OracleSlashWindow + HookEvents.
         // A pending bootstrap is injected between them (begin_order 3, before the
-        // OracleSlashWindow at begin_order 4).
+        // OracleSlashWindow at begin_order 5).
         let with_bootstrap = begin_system_txs_for_test_with_bootstrap(
             &config,
             1,
@@ -3446,6 +3525,7 @@ mod tests {
                 SystemTxKind::CycleTick,
                 SystemTxKind::TeeBootstrap,
                 SystemTxKind::OracleSlashWindow,
+                SystemTxKind::HookEvents,
             ],
             "proposer must inject TeeBootstrap before OracleSlashWindow",
         );
@@ -3455,7 +3535,11 @@ mod tests {
             begin_system_txs_for_test(&config, 1, B256::ZERO, &Bytes::new(), None, proposer);
         assert_eq!(
             begin_system_tx_kinds(&without_bootstrap),
-            vec![SystemTxKind::CycleTick, SystemTxKind::OracleSlashWindow],
+            vec![
+                SystemTxKind::CycleTick,
+                SystemTxKind::OracleSlashWindow,
+                SystemTxKind::HookEvents,
+            ],
             "no bootstrap is injected when no payload is pending",
         );
 
@@ -3853,7 +3937,7 @@ mod tests {
             );
         }
 
-        assert_eq!(executor.receipts().len(), 2);
+        assert_eq!(executor.receipts().len(), 3);
         assert!(executor.receipts().iter().all(|receipt| receipt.success));
         assert!(
             executor.system_tx_execution_gas > 0,
@@ -3877,10 +3961,14 @@ mod tests {
         );
         assert_eq!(
             executor.receipts()[1].cumulative_gas_used,
+            system_txs[0].tx().gas_limit() + system_txs[1].tx().gas_limit()
+        );
+        assert_eq!(
+            executor.receipts()[2].cumulative_gas_used,
             visible_system_gas_used
         );
 
-        assert_eq!(system_txs.len(), 2);
+        assert_eq!(system_txs.len(), 3);
         assert_eq!(Address::from(*system_txs[0].signer()), proposer);
         assert_eq!(system_txs[0].tx().chain_id(), Some(MAINNET.chain().id()));
         assert_eq!(system_txs[0].tx().tx_type(), reth_ethereum::TxType::Legacy);
@@ -3897,6 +3985,10 @@ mod tests {
         assert!(matches!(
             SystemTxInputV2::decode(system_txs[1].tx().input().as_ref()).unwrap(),
             SystemTxInputV2::OracleSlashWindow
+        ));
+        assert!(matches!(
+            SystemTxInputV2::decode(system_txs[2].tx().input().as_ref()).unwrap(),
+            SystemTxInputV2::HookEvents
         ));
         drop(executor);
 
@@ -4042,7 +4134,7 @@ mod tests {
                 .expect("begin-zone system tx should execute in tx loop");
         }
 
-        assert_eq!(executor.receipts().len(), 2);
+        assert_eq!(executor.receipts().len(), 3);
         let cycle_event = keccak256("CycleTriggerExecuted(uint32,uint64,uint64,uint64)");
         assert!(
             executor.receipts()[0].logs.iter().any(|log| {
@@ -4959,12 +5051,12 @@ mod tests {
         executor.set_final_extra_data(final_extra_data);
         let (_evm, result) = executor.finish().expect("finish should succeed");
         assert_eq!(result.gas_used, visible_system_gas + user_gas);
-        assert_eq!(result.receipts.len(), 3);
+        assert_eq!(result.receipts.len(), 4);
         let first_visible_gas = result.receipts[0].cumulative_gas_used;
         assert!(first_visible_gas >= outbe_primitives::system_tx::SYSTEM_TX_VISIBLE_GAS_FLOOR);
-        assert_eq!(result.receipts[1].cumulative_gas_used, visible_system_gas);
+        assert_eq!(result.receipts[2].cumulative_gas_used, visible_system_gas);
         assert_eq!(
-            result.receipts[2].cumulative_gas_used,
+            result.receipts[3].cumulative_gas_used,
             visible_system_gas + user_gas
         );
     }
@@ -5034,8 +5126,8 @@ mod tests {
                 .expect("Phase 1 slashing system tx should execute");
         }
 
-        // CPA(0) + LateFinalizeCredits(1) + CycleTick(2) + OracleSlashWindow(3).
-        assert_eq!(executor.receipts().len(), 4);
+        // CPA(0) + LateFinalizeCredits(1) + CycleTick(2) + OracleSlashWindow(3) + HookEvents(4).
+        assert_eq!(executor.receipts().len(), 5);
         let phase1_logs = &executor.receipts()[0].logs;
         let voter_misdemeanor = keccak256("VoterMisdemeanor(address,uint64)");
         let voter_felony = keccak256("VoterFelony(address,uint64,uint64)");
@@ -5504,7 +5596,7 @@ mod tests {
                 .expect("activation block begin-zone system tx should execute");
         }
 
-        assert_eq!(executor.receipts().len(), 3);
+        assert_eq!(executor.receipts().len(), 4);
         assert!(executor.receipts().iter().all(|receipt| receipt.success));
         drop(executor);
 
@@ -5602,8 +5694,8 @@ mod tests {
                 visible_system_gas_used
             );
         }
-        // CPA + LateFinalizeCredits + CycleTick + BoundaryOutcome + OracleSlashWindow.
-        assert_eq!(executor.receipts().len(), 5);
+        // CPA + LateFinalizeCredits + CycleTick + BoundaryOutcome + OracleSlashWindow + HookEvents.
+        assert_eq!(executor.receipts().len(), 6);
         assert!(executor.receipts().iter().all(|receipt| receipt.success));
         assert!(
             visible_system_gas_used < 30_000_000,
@@ -5635,8 +5727,8 @@ mod tests {
             .execute_transaction(recovered_deactivate)
             .expect("same-block user tx should see joining validator as active");
 
-        // 5 begin-zone receipts + 1 user (deactivate) tx.
-        assert_eq!(executor.receipts().len(), 6);
+        // 6 begin-zone receipts + 1 user (deactivate) tx.
+        assert_eq!(executor.receipts().len(), 7);
         assert!(executor.receipts()[5].success);
         drop(executor);
 
@@ -5653,6 +5745,100 @@ mod tests {
             Ok::<_, outbe_primitives::error::PrecompileError>(())
         })
         .expect("same-block user mutation should be readable");
+    }
+
+    #[test]
+    fn pre_exec_hooks_emit_whitelisted_update_activation_event() {
+        use alloy_sol_types::SolEvent;
+        use outbe_update::precompile::IUpdate;
+        use outbe_update::{encode_protocol_version, encode_scheduled_update_payload};
+
+        let proposer = test_evm_signer().address();
+        const ACTIVATION_BLOCK: u64 = 101;
+        let v1_2 = encode_protocol_version(1, 2);
+
+        let mut state =
+            state_with_active_validators_seeded(&[(proposer, dummy_pubkey(0xA2))], |storage| {
+                let proposal_id = U256::from(1);
+                let payload = encode_scheduled_update_payload(v1_2, ACTIVATION_BLOCK, b"");
+                let mut update = outbe_update::schema::Update::new(storage.clone());
+                update
+                    .schedule_update_from_vote(proposal_id, &payload, 1)
+                    .expect("schedule update");
+            });
+
+        let ctx = BlockContext::new(
+            ACTIVATION_BLOCK,
+            ACTIVATION_BLOCK,
+            CHAIN_ID,
+            proposer,
+            vec![proposer],
+        );
+        let (_, hook_events) = super::run_atomic_storage_hooks(&mut state, ctx, |hook_ctx| {
+            super::run_outbe_pre_execution_hooks(hook_ctx, None)
+        })
+        .expect("pre-exec hooks should run");
+        let (whitelisted, _) = partition_hook_events(&hook_events);
+        let upgrade_activated = IUpdate::UpgradeActivated::SIGNATURE_HASH;
+        assert!(
+            whitelisted.iter().any(|log| {
+                log.address == UPDATE_ADDRESS
+                    && log.data.topics().first() == Some(&upgrade_activated)
+            }),
+            "pre-exec hooks must emit whitelisted UpgradeActivated for HookEvents receipt"
+        );
+    }
+
+    #[test]
+    fn hook_events_receipt_carries_whitelisted_update_activation_log() {
+        use alloy_sol_types::SolEvent;
+        use outbe_update::precompile::IUpdate;
+        use outbe_update::{encode_protocol_version, encode_scheduled_update_payload};
+
+        let proposer = test_evm_signer().address();
+        const ACTIVATION_BLOCK: u64 = 101;
+        let v1_2 = encode_protocol_version(1, 2);
+
+        let mut state =
+            state_with_active_validators_seeded(&[(proposer, dummy_pubkey(0xA2))], |storage| {
+                let proposal_id = U256::from(1);
+                let payload = encode_scheduled_update_payload(v1_2, ACTIVATION_BLOCK, b"");
+                let mut update = outbe_update::schema::Update::new(storage.clone());
+                update
+                    .schedule_update_from_vote(proposal_id, &payload, 1)
+                    .expect("schedule update");
+            });
+
+        let ctx = BlockContext::new(
+            ACTIVATION_BLOCK,
+            ACTIVATION_BLOCK,
+            CHAIN_ID,
+            proposer,
+            vec![proposer],
+        );
+        let (_, hook_events) = super::run_atomic_storage_hooks(&mut state, ctx, |hook_ctx| {
+            super::run_outbe_pre_execution_hooks(hook_ctx, None)
+        })
+        .expect("pre-exec hooks should emit activation events");
+        let (whitelisted_logs, _) = partition_hook_events(&hook_events);
+
+        let config = OutbeEvmConfig::new(test_chain_spec());
+        let evm = config.evm_with_env(&mut state, test_evm_env(ACTIVATION_BLOCK, REWARDS_ADDRESS));
+        let mut executor = config.create_executor(evm, execution_ctx(None, Bytes::new()));
+        executor
+            .push_hook_events_receipt(alloy_consensus::TxType::Legacy, whitelisted_logs, 21_000)
+            .expect("HookEvents receipt should publish captured hook logs");
+
+        let hook_receipt = executor.receipts().last().expect("HookEvents receipt");
+        assert!(hook_receipt.success);
+        let upgrade_activated = IUpdate::UpgradeActivated::SIGNATURE_HASH;
+        assert!(
+            hook_receipt.logs.iter().any(|log| {
+                log.address == UPDATE_ADDRESS
+                    && log.data.topics().first() == Some(&upgrade_activated)
+            }),
+            "HookEvents receipt must carry UpgradeActivated from pre-exec hook events"
+        );
     }
 
     #[test]
@@ -5747,7 +5933,7 @@ mod tests {
             );
         }
 
-        assert_eq!(executor.receipts().len(), 3);
+        assert_eq!(executor.receipts().len(), 4);
         assert!(executor.receipts().iter().all(|receipt| receipt.success));
         let oracle_forced_exit = keccak256("ValidatorForcedExit(address)");
         assert!(
@@ -5763,6 +5949,18 @@ mod tests {
                 log.address == ORACLE_ADDRESS && log.data.topics().first() == Some(&oracle_slashed)
             }),
             "Oracle slash-window stake slash must be receipt-visible"
+        );
+        let hook_events_receipt = &executor.receipts()[3];
+        assert!(
+            hook_events_receipt.success,
+            "mandatory HookEvents receipt must succeed even when empty"
+        );
+        assert!(
+            !hook_events_receipt
+                .logs
+                .iter()
+                .any(|log| log.address == ORACLE_ADDRESS),
+            "non-whitelisted oracle hook events must not appear in HookEvents receipt"
         );
         assert!(
             visible_system_gas_used < 30_000_000,
@@ -5877,14 +6075,29 @@ mod tests {
             SystemTxInputV2::OracleSlashWindow.encode().unwrap(),
         )
         .unwrap();
+        let hook_events_unsigned = build_unsigned_system_tx(
+            SystemTxKind::HookEvents,
+            2,
+            1,
+            MAINNET.chain().id(),
+            SystemTxInputV2::HookEvents.encode().unwrap(),
+        )
+        .unwrap();
         let wrong_signed = signer.sign_unsigned(wrong_unsigned).unwrap();
         let oracle_signed = signer.sign_unsigned(oracle_unsigned).unwrap();
+        let hook_events_signed = signer.sign_unsigned(hook_events_unsigned).unwrap();
         let wrong_recovered =
             reth_primitives_traits::Recovered::new_unchecked(wrong_signed, proposer);
         let oracle_recovered =
             reth_primitives_traits::Recovered::new_unchecked(oracle_signed, proposer);
+        let hook_events_recovered =
+            reth_primitives_traits::Recovered::new_unchecked(hook_events_signed, proposer);
         let mut ctx = execution_ctx(Some(1), Bytes::new());
-        ctx.expected_begin_system_txs = vec![wrong_recovered.clone(), oracle_recovered];
+        ctx.expected_begin_system_txs = vec![
+            wrong_recovered.clone(),
+            oracle_recovered,
+            hook_events_recovered,
+        ];
 
         let mut executor = config.create_executor(evm, ctx);
         executor
@@ -5990,14 +6203,29 @@ mod tests {
             SystemTxInputV2::OracleSlashWindow.encode().unwrap(),
         )
         .unwrap();
+        let hook_events_unsigned = build_unsigned_system_tx(
+            SystemTxKind::HookEvents,
+            2,
+            1,
+            MAINNET.chain().id(),
+            SystemTxInputV2::HookEvents.encode().unwrap(),
+        )
+        .unwrap();
         let wrong_signed = wrong_signer.sign_unsigned(unsigned).unwrap();
         let oracle_signed = proposer_signer.sign_unsigned(oracle_unsigned).unwrap();
+        let hook_events_signed = proposer_signer.sign_unsigned(hook_events_unsigned).unwrap();
         let wrong_recovered =
             reth_primitives_traits::Recovered::new_unchecked(wrong_signed, wrong_signer.address());
         let oracle_recovered =
             reth_primitives_traits::Recovered::new_unchecked(oracle_signed, proposer);
+        let hook_events_recovered =
+            reth_primitives_traits::Recovered::new_unchecked(hook_events_signed, proposer);
         let mut ctx = execution_ctx(Some(1), Bytes::new());
-        ctx.expected_begin_system_txs = vec![wrong_recovered.clone(), oracle_recovered];
+        ctx.expected_begin_system_txs = vec![
+            wrong_recovered.clone(),
+            oracle_recovered,
+            hook_events_recovered,
+        ];
         ctx.proposer_evm_address = Some(proposer);
 
         let mut executor = config.create_executor(evm, ctx);

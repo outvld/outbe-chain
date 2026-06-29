@@ -125,6 +125,10 @@ pub fn dispatch(
             let ctx = block_runtime_context_from_storage(storage, false)?;
             run_oracle_slash_window(&ctx)?;
         }
+        SystemTxInputV2::HookEvents => {
+            let ctx = block_runtime_context_from_storage(storage, false)?;
+            run_hook_events(&ctx)?;
+        }
     }
 
     Ok(Bytes::new())
@@ -869,6 +873,12 @@ fn record_window_close_absentees(ctx: &BlockRuntimeContext, block_number: u64) -
 /// same-block boundary activation but before user transactions observe state.
 pub(crate) fn run_oracle_slash_window(ctx: &BlockRuntimeContext) -> Result<()> {
     outbe_oracle::hooks::run_slash_window(ctx)
+}
+
+/// HookEvents system tx: no-op marker. Whitelisted pre-exec hook logs are
+/// attached to this phase's receipt by the executor without re-running hooks.
+pub(crate) fn run_hook_events(_ctx: &BlockRuntimeContext) -> Result<()> {
+    Ok(())
 }
 
 fn block_runtime_context_from_storage(

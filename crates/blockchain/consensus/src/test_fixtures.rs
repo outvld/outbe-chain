@@ -379,7 +379,8 @@ pub(crate) fn block_with_system_tx(signer: &OutbeEvmSigner) -> ConsensusBlock {
     // block 1 mandatorily carries a BoundaryOutcome under V2,
     // so the minimum-shape "block with system txs" test fixture moved to
     // block 2 where the canonical layout is
-    // `[CertifiedParentAccounting, CycleTick, OracleSlashWindow]`.
+    // `[CertifiedParentAccounting, LateFinalizeCredits, CycleTick,
+    // OracleSlashWindow, HookEvents]`.
     let parent_hash = B256::ZERO;
     block_with_system_inputs(
         signer,
@@ -395,6 +396,7 @@ pub(crate) fn block_with_system_tx(signer: &OutbeEvmSigner) -> ConsensusBlock {
             },
             SystemTxInputV2::CycleTick,
             SystemTxInputV2::OracleSlashWindow,
+            SystemTxInputV2::HookEvents,
         ],
         outbe_primitives::chain::CHAIN_ID,
     )

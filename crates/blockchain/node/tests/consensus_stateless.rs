@@ -209,6 +209,13 @@ fn gas_04_osaka_user_tx_cap_accepts_visible_outbe_system_tx_envelopes() {
             2,
             SystemTxInputV2::OracleSlashWindow,
         ),
+        signed_v2(
+            &signer,
+            SystemTxKind::HookEvents,
+            4,
+            2,
+            SystemTxInputV2::HookEvents,
+        ),
     ];
     for tx in &transactions {
         assert_eq!(
@@ -413,7 +420,14 @@ fn block_b_ge_2_layout_requires_certified_parent_accounting_body0() {
         2,
         SystemTxInputV2::OracleSlashWindow,
     );
-    let body_bad_hash = body(vec![phase1, late2, cycle2, oracle2]);
+    let hook_events2 = signed_v2(
+        &signer,
+        SystemTxKind::HookEvents,
+        4,
+        2,
+        SystemTxInputV2::HookEvents,
+    );
+    let body_bad_hash = body(vec![phase1, late2, cycle2, oracle2, hook_events2]);
     let header_bad_hash = header_for(2, parent_hash);
     let err_bad_hash = validate_system_tx_consensus_boundary(&body_bad_hash, &header_bad_hash)
         .expect_err(
@@ -551,6 +565,13 @@ fn with_tx_root_forwards_transaction_root_on_wellformed_block() {
             2,
             SystemTxInputV2::OracleSlashWindow,
         ),
+        signed_v2(
+            &signer,
+            SystemTxKind::HookEvents,
+            4,
+            2,
+            SystemTxInputV2::HookEvents,
+        ),
     ];
     // The block's true transaction root (also written into the header).
     let correct_tx_root = calculate_transaction_root(&transactions);
@@ -630,7 +651,7 @@ fn v2_envelope_with_unknown_selector_rejects() {
 
 /// Build the canonical block-2 begin-zone set with a chosen LateFinalizeCredits
 /// body artifact (ordinals 0..=3): CPA, LateFinalizeCredits, CycleTick,
-/// OracleSlashWindow.
+/// OracleSlashWindow, HookEvents.
 fn begin_zone_txs_block2(
     signer: &OutbeEvmSigner,
     parent_hash: B256,
@@ -668,6 +689,13 @@ fn begin_zone_txs_block2(
             3,
             2,
             SystemTxInputV2::OracleSlashWindow,
+        ),
+        signed_v2(
+            signer,
+            SystemTxKind::HookEvents,
+            4,
+            2,
+            SystemTxInputV2::HookEvents,
         ),
     ]
 }
@@ -725,7 +753,7 @@ fn mandatory_late_phase_cannot_be_skipped() {
     let parent_hash = B256::with_last_byte(0xA4);
     let mut txs =
         begin_zone_txs_block2(&signer, parent_hash, LateFinalizeCreditsArtifact::default());
-    // Drop the LateFinalizeCredits tx (ordinal 1) — leaving CPA, CycleTick, OracleSlashWindow.
+    // Drop the LateFinalizeCredits tx (ordinal 1) — leaving CPA, CycleTick, OracleSlashWindow, HookEvents.
     txs.remove(1);
     let header = header_for_transactions(2, parent_hash, &txs);
     let err = validate_system_tx_consensus_boundary(&body(txs), &header)

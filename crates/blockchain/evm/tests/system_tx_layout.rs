@@ -119,8 +119,9 @@ fn block_1_layout_requires_boundary_outcome_for_v2() {
             SystemTxKind::CycleTick,
             SystemTxKind::BoundaryOutcome,
             SystemTxKind::OracleSlashWindow,
+            SystemTxKind::HookEvents,
         ],
-        "block 1 V2 layout must include CycleTick, BoundaryOutcome, OracleSlashWindow",
+        "block 1 V2 layout must include CycleTick, BoundaryOutcome, OracleSlashWindow, HookEvents",
     );
 }
 
@@ -159,6 +160,7 @@ fn v2_begin_zone_ordering_is_canonical() {
             SystemTxKind::LateFinalizeCredits,
             SystemTxKind::CycleTick,
             SystemTxKind::OracleSlashWindow,
+            SystemTxKind::HookEvents,
         ],
     );
 
@@ -172,6 +174,7 @@ fn v2_begin_zone_ordering_is_canonical() {
             SystemTxKind::CycleTick,
             SystemTxKind::BoundaryOutcome,
             SystemTxKind::OracleSlashWindow,
+            SystemTxKind::HookEvents,
         ],
     );
 
@@ -182,6 +185,7 @@ fn v2_begin_zone_ordering_is_canonical() {
         SystemTxKind::CycleTick,
         SystemTxKind::BoundaryOutcome,
         SystemTxKind::OracleSlashWindow,
+        SystemTxKind::HookEvents,
     ] {
         assert_eq!(kind.body_zone(), BodyZone::BeginBlock);
         assert!(kind.begin_order().is_some());

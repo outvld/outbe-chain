@@ -459,6 +459,7 @@ fn runtime_genesis_dkg_boundary_seeds_epoch0_vrf_snapshot_before_block2() {
         SystemTxKind::CycleTick,
         SystemTxKind::BoundaryOutcome,
         SystemTxKind::OracleSlashWindow,
+        SystemTxKind::HookEvents,
     ];
     assert_eq!(
         block1, expected_block1,

@@ -116,6 +116,7 @@ fn input_for(kind: SystemTxKind) -> SystemTxInputV2 {
             },
         },
         SystemTxKind::OracleSlashWindow => SystemTxInputV2::OracleSlashWindow,
+        SystemTxKind::HookEvents => SystemTxInputV2::HookEvents,
     }
 }
 
@@ -153,6 +154,7 @@ fn full_begin_system_prefix_validates_before_user_transactions() {
         system_tx(SystemTxKind::CycleTick, 2),
         system_tx(SystemTxKind::BoundaryOutcome, 3),
         system_tx(SystemTxKind::OracleSlashWindow, 4),
+        system_tx(SystemTxKind::HookEvents, 5),
         user_tx(),
     ];
 
@@ -170,6 +172,7 @@ fn full_begin_system_prefix_validates_before_user_transactions() {
             SystemTxKind::CycleTick,
             SystemTxKind::BoundaryOutcome,
             SystemTxKind::OracleSlashWindow,
+            SystemTxKind::HookEvents,
         ]
     );
     assert_eq!(layout.user.len(), 1);
@@ -191,6 +194,7 @@ fn missing_or_extra_receipt_visible_system_txs_are_rejected() {
         system_tx(SystemTxKind::CycleTick, 1),
         system_tx(SystemTxKind::BoundaryOutcome, 2),
         system_tx(SystemTxKind::OracleSlashWindow, 3),
+        system_tx(SystemTxKind::HookEvents, 4),
     ];
     let layout = split_system_layout(&unexpected_boundary).expect("layout splits");
     assert!(validate_active_system_tx_set(&layout, BLOCK_NUMBER, false, false).is_err());
@@ -207,6 +211,7 @@ fn system_tx_wire_limits_leave_runtime_gas_headroom() {
         SystemTxKind::CycleTick,
         SystemTxKind::BoundaryOutcome,
         SystemTxKind::OracleSlashWindow,
+        SystemTxKind::HookEvents,
     ]
     .into_iter()
     .enumerate()
@@ -259,11 +264,12 @@ fn gas_12_system_prefix_aggregate_visible_gas_must_fit_block_cap() {
             4,
             SystemTxInputV2::OracleSlashWindow,
         ),
+        signed_system_tx(SystemTxKind::HookEvents, 5, SystemTxInputV2::HookEvents),
     ];
     let layout = split_system_layout(&txs).expect("worst-case system prefix layout splits");
     validate_active_system_tx_set(&layout, BLOCK_NUMBER, true, false)
         .expect("worst-case active system tx set validates");
-    assert_eq!(txs.len(), 5);
+    assert_eq!(txs.len(), 6);
     assert!(txs.len() <= usize::from(MAX_SYSTEM_TXS_PER_BLOCK));
 
     let aggregate_envelope_gas: u64 = txs.iter().map(|tx| tx.gas_limit()).sum();

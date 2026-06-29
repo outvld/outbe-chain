@@ -621,8 +621,15 @@ mod tests {
             2,
             outbe_evm::system_tx::SystemTxInputV2::OracleSlashWindow,
         );
+        let hook_events = signed_system_tx(
+            &signer,
+            outbe_evm::system_tx::SystemTxKind::HookEvents,
+            4,
+            2,
+            outbe_evm::system_tx::SystemTxInputV2::HookEvents,
+        );
         let body = OutbeBlockBody {
-            transactions: vec![phase1, late, cycle, oracle],
+            transactions: vec![phase1, late, cycle, oracle, hook_events],
             ommers: Vec::new(),
             withdrawals: None,
         };

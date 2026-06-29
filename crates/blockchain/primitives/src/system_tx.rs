@@ -17,6 +17,8 @@
 //! 4. [`SystemTxKind::BoundaryOutcome`] iff the header carries a BoundaryOutcome
 //!    (mandatory at block `1` under V2 for the genesis bootstrap).
 //! 5. [`SystemTxKind::OracleSlashWindow`] for block `>= 1`.
+//! 6. [`SystemTxKind::HookEvents`] for block `>= 1` (receipt container for
+//!    whitelisted pre-exec hook logs; no lifecycle re-execution).
 //!
 //! ## V2 codec
 //!
@@ -68,6 +70,8 @@ pub const ORACLE_SLASH_WINDOW_SELECTOR: [u8; 4] = [b'O', b'S', b'O', b'2'];
 pub const TEE_BOOTSTRAP_SELECTOR: [u8; 4] = [b'O', b'S', b'T', b'2'];
 /// Selector for [`SystemTxKind::LateFinalizeCredits`].
 pub const LATE_FINALIZE_CREDITS_SELECTOR: [u8; 4] = [b'O', b'S', b'L', b'2'];
+/// Selector for [`SystemTxKind::HookEvents`] (V2 OSH2).
+pub const HOOK_EVENTS_SELECTOR: [u8; 4] = [b'O', b'S', b'H', b'2'];
 
 /// Hard cap on system transactions emitted in a block.
 pub const MAX_SYSTEM_TXS_PER_BLOCK: u8 = 16;
@@ -113,6 +117,8 @@ pub enum SystemTxKind {
     /// block; reads the same-block `CommitteeSnapshotStore` written by Phase 3a).
     TeeBootstrap,
     OracleSlashWindow,
+    /// Receipt container for whitelisted pre-exec hook events (`Vote`, `Update`, …).
+    HookEvents,
 }
 
 impl SystemTxKind {
@@ -124,6 +130,7 @@ impl SystemTxKind {
             Self::BoundaryOutcome => BOUNDARY_OUTCOME_SELECTOR,
             Self::TeeBootstrap => TEE_BOOTSTRAP_SELECTOR,
             Self::OracleSlashWindow => ORACLE_SLASH_WINDOW_SELECTOR,
+            Self::HookEvents => HOOK_EVENTS_SELECTOR,
         }
     }
 
@@ -158,7 +165,7 @@ impl SystemTxKind {
             | Self::LateFinalizeCredits
             | Self::CycleTick
             | Self::BoundaryOutcome => true,
-            Self::TeeBootstrap | Self::OracleSlashWindow => false,
+            Self::TeeBootstrap | Self::OracleSlashWindow | Self::HookEvents => false,
         }
     }
 
@@ -170,6 +177,7 @@ impl SystemTxKind {
             Self::BoundaryOutcome => Some(3),
             Self::TeeBootstrap => Some(4),
             Self::OracleSlashWindow => Some(5),
+            Self::HookEvents => Some(6),
         }
     }
 
@@ -210,6 +218,7 @@ pub enum SystemTxInputV2 {
         payload: TeeBootstrapPayload,
     },
     OracleSlashWindow,
+    HookEvents,
 }
 
 impl SystemTxInputV2 {
@@ -221,6 +230,7 @@ impl SystemTxInputV2 {
             Self::BoundaryOutcome { .. } => SystemTxKind::BoundaryOutcome,
             Self::TeeBootstrap { .. } => SystemTxKind::TeeBootstrap,
             Self::OracleSlashWindow => SystemTxKind::OracleSlashWindow,
+            Self::HookEvents => SystemTxKind::HookEvents,
         }
     }
 
@@ -238,7 +248,7 @@ impl SystemTxInputV2 {
                         .as_ref(),
                 );
             }
-            Self::CycleTick | Self::OracleSlashWindow => {}
+            Self::CycleTick | Self::OracleSlashWindow | Self::HookEvents => {}
             Self::LateFinalizeCredits { artifact } => {
                 // Empty batches encode to empty bytes — the mandatory tx then
                 // carries an empty body and still drives the window-close settle.
@@ -308,6 +318,15 @@ impl SystemTxInputV2 {
                 }
                 Ok(Self::OracleSlashWindow)
             }
+            SystemTxKind::HookEvents => {
+                if !body.is_empty() {
+                    return Err(SystemTxError::UnexpectedBody {
+                        kind,
+                        len: body.len(),
+                    });
+                }
+                Ok(Self::HookEvents)
+            }
             SystemTxKind::BoundaryOutcome => {
                 let Some(artifact) =
                     decode_boundary_artifact(body).map_err(SystemTxError::from_precompile)?
@@ -364,6 +383,8 @@ pub enum SystemTxPhase {
     TeeBootstrapOptional { body_index: u8 },
     /// Next expected begin-zone tx is Phase 4 (`OracleSlashWindow`).
     OracleSlashWindow { body_index: u8 },
+    /// Next expected begin-zone tx is the mandatory `HookEvents` receipt carrier.
+    HookEvents { body_index: u8 },
     /// All begin-zone system txs consumed; only user transactions remain.
     UserTxs,
 }
@@ -400,6 +421,7 @@ impl SystemTxPhase {
             Self::BoundaryOutcomeOptional { .. } => Some(SystemTxKind::BoundaryOutcome),
             Self::TeeBootstrapOptional { .. } => Some(SystemTxKind::TeeBootstrap),
             Self::OracleSlashWindow { .. } => Some(SystemTxKind::OracleSlashWindow),
+            Self::HookEvents { .. } => Some(SystemTxKind::HookEvents),
             Self::UserTxs => None,
         }
     }
@@ -413,7 +435,8 @@ impl SystemTxPhase {
             | Self::CycleTick { body_index }
             | Self::BoundaryOutcomeOptional { body_index }
             | Self::TeeBootstrapOptional { body_index }
-            | Self::OracleSlashWindow { body_index } => Some(*body_index),
+            | Self::OracleSlashWindow { body_index }
+            | Self::HookEvents { body_index } => Some(*body_index),
             Self::UserTxs => None,
         }
     }
@@ -476,7 +499,10 @@ impl SystemTxPhase {
             Self::TeeBootstrapOptional { body_index } => Self::OracleSlashWindow {
                 body_index: body_index + 1,
             },
-            Self::OracleSlashWindow { .. } | Self::UserTxs => Self::UserTxs,
+            Self::OracleSlashWindow { body_index } => Self::HookEvents {
+                body_index: body_index + 1,
+            },
+            Self::HookEvents { .. } | Self::UserTxs => Self::UserTxs,
         }
     }
 }
@@ -619,6 +645,7 @@ pub fn system_tx_kind_from_selector(selector: [u8; 4]) -> Result<SystemTxKind, S
         BOUNDARY_OUTCOME_SELECTOR => Ok(SystemTxKind::BoundaryOutcome),
         TEE_BOOTSTRAP_SELECTOR => Ok(SystemTxKind::TeeBootstrap),
         ORACLE_SLASH_WINDOW_SELECTOR => Ok(SystemTxKind::OracleSlashWindow),
+        HOOK_EVENTS_SELECTOR => Ok(SystemTxKind::HookEvents),
         other => Err(SystemTxError::UnknownSelector(other)),
     }
 }
@@ -884,6 +911,7 @@ pub fn expected_begin_block_kinds(
     }
     if block_number > 0 {
         expected.push(SystemTxKind::OracleSlashWindow);
+        expected.push(SystemTxKind::HookEvents);
     }
     expected
 }
@@ -1071,6 +1099,7 @@ mod tests {
                 payload: sample_tee_bootstrap(),
             },
             SystemTxKind::OracleSlashWindow => SystemTxInputV2::OracleSlashWindow,
+            SystemTxKind::HookEvents => SystemTxInputV2::HookEvents,
         }
     }
 
@@ -1132,6 +1161,7 @@ mod tests {
             SystemTxKind::BoundaryOutcome,
             SystemTxKind::TeeBootstrap,
             SystemTxKind::OracleSlashWindow,
+            SystemTxKind::HookEvents,
         ] {
             let input = input_for(kind);
             let encoded = input.encode().expect("input encodes");
@@ -1524,6 +1554,7 @@ mod tests {
             system_tx(SystemTxKind::CycleTick, 0, 1),
             system_tx(SystemTxKind::BoundaryOutcome, 1, 1),
             system_tx(SystemTxKind::OracleSlashWindow, 2, 1),
+            system_tx(SystemTxKind::HookEvents, 3, 1),
         ];
         let block1 = split_system_layout(&block1_txs).expect("layout");
         validate_active_system_tx_set(&block1, 1, true, false).expect("block 1 V2 ok");
@@ -1533,6 +1564,7 @@ mod tests {
             system_tx(SystemTxKind::LateFinalizeCredits, 1, 2),
             system_tx(SystemTxKind::CycleTick, 2, 2),
             system_tx(SystemTxKind::OracleSlashWindow, 3, 2),
+            system_tx(SystemTxKind::HookEvents, 4, 2),
         ];
         let block2 = split_system_layout(&block2_txs).expect("layout");
         validate_active_system_tx_set(&block2, 2, false, false).expect("block 2 ok");
@@ -1543,6 +1575,7 @@ mod tests {
             system_tx(SystemTxKind::CycleTick, 2, 2),
             system_tx(SystemTxKind::BoundaryOutcome, 3, 2),
             system_tx(SystemTxKind::OracleSlashWindow, 4, 2),
+            system_tx(SystemTxKind::HookEvents, 5, 2),
         ];
         let block2_with_boundary = split_system_layout(&block2_with_boundary_txs).expect("layout");
         validate_active_system_tx_set(&block2_with_boundary, 2, true, false)
@@ -1577,6 +1610,7 @@ mod tests {
         let block1_missing_cycle_tick_txs = vec![
             system_tx(SystemTxKind::BoundaryOutcome, 0, 1),
             system_tx(SystemTxKind::OracleSlashWindow, 1, 1),
+            system_tx(SystemTxKind::HookEvents, 2, 1),
         ];
         let block1_missing_cycle_tick =
             split_system_layout(&block1_missing_cycle_tick_txs).expect("layout");
@@ -1590,6 +1624,7 @@ mod tests {
         let block1_no_boundary_txs = vec![
             system_tx(SystemTxKind::CycleTick, 0, 1),
             system_tx(SystemTxKind::OracleSlashWindow, 1, 1),
+            system_tx(SystemTxKind::HookEvents, 2, 1),
         ];
         let block1_no_boundary = split_system_layout(&block1_no_boundary_txs).expect("layout");
         assert!(matches!(
@@ -1600,6 +1635,7 @@ mod tests {
         let missing_oracle_slash_window_txs = vec![
             system_tx(SystemTxKind::CertifiedParentAccounting, 0, 2),
             system_tx(SystemTxKind::CycleTick, 1, 2),
+            system_tx(SystemTxKind::HookEvents, 2, 2),
         ];
         let missing_oracle_slash_window =
             split_system_layout(&missing_oracle_slash_window_txs).expect("layout");
@@ -1612,6 +1648,7 @@ mod tests {
             system_tx(SystemTxKind::CertifiedParentAccounting, 0, 2),
             system_tx(SystemTxKind::CycleTick, 1, 2),
             system_tx(SystemTxKind::OracleSlashWindow, 2, 2),
+            system_tx(SystemTxKind::HookEvents, 3, 2),
         ];
         let missing_boundary = split_system_layout(&missing_boundary_txs).expect("layout");
         assert!(matches!(
@@ -1624,6 +1661,7 @@ mod tests {
             system_tx(SystemTxKind::CycleTick, 1, 2),
             system_tx(SystemTxKind::BoundaryOutcome, 2, 2),
             system_tx(SystemTxKind::OracleSlashWindow, 3, 2),
+            system_tx(SystemTxKind::HookEvents, 4, 2),
         ];
         let unexpected_boundary = split_system_layout(&unexpected_boundary_txs).expect("layout");
         assert!(matches!(
@@ -1648,7 +1686,11 @@ mod tests {
                 "{kind:?} must fail the block on revert"
             );
         }
-        for kind in [SystemTxKind::TeeBootstrap, SystemTxKind::OracleSlashWindow] {
+        for kind in [
+            SystemTxKind::TeeBootstrap,
+            SystemTxKind::OracleSlashWindow,
+            SystemTxKind::HookEvents,
+        ] {
             assert!(
                 !kind.revert_fails_block(),
                 "{kind:?} must keep the soft-receipt skip"
@@ -1667,6 +1709,7 @@ mod tests {
             system_tx(SystemTxKind::BoundaryOutcome, 3, 2),
             system_tx(SystemTxKind::TeeBootstrap, 4, 2),
             system_tx(SystemTxKind::OracleSlashWindow, 5, 2),
+            system_tx(SystemTxKind::HookEvents, 6, 2),
         ];
         let layout = split_system_layout(&txs).expect("layout");
         validate_active_system_tx_set(&layout, 2, true, true).expect("bootstrap block ok");
@@ -1684,6 +1727,7 @@ mod tests {
             system_tx(SystemTxKind::CycleTick, 2, 2),
             system_tx(SystemTxKind::TeeBootstrap, 3, 2),
             system_tx(SystemTxKind::OracleSlashWindow, 4, 2),
+            system_tx(SystemTxKind::HookEvents, 5, 2),
         ];
         let layout_no_bo = split_system_layout(&txs_no_bo).expect("layout");
         validate_active_system_tx_set(&layout_no_bo, 2, false, true).expect("bootstrap w/o bo ok");
@@ -1699,8 +1743,10 @@ mod tests {
         assert_eq!(tee, SystemTxPhase::TeeBootstrapOptional { body_index: 3 });
         let oracle = tee.advance_after_commit(true, true);
         assert_eq!(oracle, SystemTxPhase::OracleSlashWindow { body_index: 4 });
+        let hook_events = oracle.advance_after_commit(true, true);
+        assert_eq!(hook_events, SystemTxPhase::HookEvents { body_index: 5 });
         assert_eq!(
-            oracle.advance_after_commit(true, true),
+            hook_events.advance_after_commit(true, true),
             SystemTxPhase::UserTxs
         );
 
@@ -1714,6 +1760,10 @@ mod tests {
         assert_eq!(
             SystemTxPhase::CycleTick { body_index: 1 }.advance_after_commit(false, false),
             SystemTxPhase::OracleSlashWindow { body_index: 2 }
+        );
+        assert_eq!(
+            SystemTxPhase::OracleSlashWindow { body_index: 2 }.advance_after_commit(false, false),
+            SystemTxPhase::HookEvents { body_index: 3 }
         );
     }
 
@@ -1793,6 +1843,10 @@ mod tests {
                 SystemTxPhase::OracleSlashWindow { body_index: 4 },
                 Some(SystemTxKind::OracleSlashWindow),
             ),
+            (
+                SystemTxPhase::HookEvents { body_index: 5 },
+                Some(SystemTxKind::HookEvents),
+            ),
             (SystemTxPhase::UserTxs, None),
         ];
         for (phase, expected) in cases {
@@ -1821,6 +1875,7 @@ mod tests {
                 Some(3),
             ),
             (SystemTxPhase::OracleSlashWindow { body_index: 4 }, Some(4)),
+            (SystemTxPhase::HookEvents { body_index: 5 }, Some(5)),
             (SystemTxPhase::UserTxs, None),
         ] {
             assert_eq!(phase.body_index(), expected, "phase={phase:?}");

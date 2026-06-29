@@ -589,6 +589,9 @@ impl OutbeEvmConfig {
         if block_number >= 1 {
             inputs.push(SystemTxInputV2::OracleSlashWindow);
         }
+        if block_number >= 1 {
+            inputs.push(SystemTxInputV2::HookEvents);
+        }
 
         inputs
             .into_iter()

@@ -65,6 +65,7 @@ fn phase1_reordering_preserves_body_receipt_order() {
             SystemTxKind::LateFinalizeCredits,
             SystemTxKind::CycleTick,
             SystemTxKind::OracleSlashWindow,
+            SystemTxKind::HookEvents,
         ]
     );
 
@@ -77,6 +78,7 @@ fn phase1_reordering_preserves_body_receipt_order() {
             SystemTxKind::CycleTick,
             SystemTxKind::BoundaryOutcome,
             SystemTxKind::OracleSlashWindow,
+            SystemTxKind::HookEvents,
         ]
     );
 
@@ -87,13 +89,15 @@ fn phase1_reordering_preserves_body_receipt_order() {
     let cycle = late.advance_after_commit(true, false);
     let boundary = cycle.advance_after_commit(true, false);
     let oracle = boundary.advance_after_commit(true, false);
-    let after_oracle = oracle.advance_after_commit(true, false);
+    let hook_events = oracle.advance_after_commit(true, false);
+    let after_hook_events = hook_events.advance_after_commit(true, false);
     assert_eq!(phase1.body_index(), Some(0));
     assert_eq!(late.body_index(), Some(1));
     assert_eq!(cycle.body_index(), Some(2));
     assert_eq!(boundary.body_index(), Some(3));
     assert_eq!(oracle.body_index(), Some(4));
-    assert_eq!(after_oracle, SystemTxPhase::UserTxs);
+    assert_eq!(hook_events.body_index(), Some(5));
+    assert_eq!(after_hook_events, SystemTxPhase::UserTxs);
 }
 
 /// Cursor invariant: Phase 1 is consumed at most once per block. After
