@@ -12,10 +12,7 @@ use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
 use super::{setup_default_validators, PROPOSER, VOTER_A, VOTER_B};
 
-fn with_vote_provider<F: FnOnce(StorageHandle)>(
-    block_number: u64,
-    f: F,
-) -> HashMapStorageProvider {
+fn with_vote_provider<F: FnOnce(StorageHandle)>(block_number: u64, f: F) -> HashMapStorageProvider {
     let mut provider = HashMapStorageProvider::new(1);
     provider.set_block_number(block_number);
     let storage = StorageHandle::new(&mut provider);
@@ -42,15 +39,11 @@ fn dispatch_create_proposal_emits_event() {
         .abi_encode();
 
         let ret = dispatch(storage.clone(), &data, PROPOSER, U256::ZERO).unwrap();
-        let proposal_id =
-            IVote::createProposalCall::abi_decode_returns(&ret).unwrap();
+        let proposal_id = IVote::createProposalCall::abi_decode_returns(&ret).unwrap();
         assert_eq!(proposal_id, U256::from(1));
     });
 
-    assert!(has_event(
-        &provider,
-        IVote::ProposalCreated::SIGNATURE_HASH,
-    ));
+    assert!(has_event(&provider, IVote::ProposalCreated::SIGNATURE_HASH,));
 }
 
 #[test]
@@ -113,7 +106,10 @@ fn dispatch_views_return_abi_shaped_data() {
             .cast_vote_approve(proposal_id, VOTER_B, false, 202)
             .unwrap();
 
-        let get_data = IVote::getProposalCall { proposalId: proposal_id }.abi_encode();
+        let get_data = IVote::getProposalCall {
+            proposalId: proposal_id,
+        }
+        .abi_encode();
         let ret = dispatch(storage.clone(), &get_data, PROPOSER, U256::ZERO).unwrap();
         let info = IVote::getProposalCall::abi_decode_returns(&ret).unwrap();
         assert_eq!(info.proposalId, proposal_id);
@@ -132,8 +128,7 @@ fn dispatch_views_return_abi_shaped_data() {
         }
         .abi_encode();
         let voters_ret = dispatch(storage.clone(), &voters_data, PROPOSER, U256::ZERO).unwrap();
-        let voters =
-            IVote::getProposalVotersCall::abi_decode_returns(&voters_ret).unwrap();
+        let voters = IVote::getProposalVotersCall::abi_decode_returns(&voters_ret).unwrap();
         assert_eq!(voters, vec![VOTER_A, VOTER_B]);
 
         let list_data = IVote::listProposalsCall {
@@ -198,10 +193,7 @@ fn dispatch_cast_vote_rejects_non_zero_value_before_state_change() {
     });
 }
 
-fn has_event(
-    provider: &HashMapStorageProvider,
-    topic0: alloy_primitives::B256,
-) -> bool {
+fn has_event(provider: &HashMapStorageProvider, topic0: alloy_primitives::B256) -> bool {
     provider
         .get_events(VOTE_ADDRESS)
         .iter()

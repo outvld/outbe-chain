@@ -7,7 +7,7 @@ use crate::schema::ProposalStatus;
 use crate::schema::Vote;
 use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
-use super::{VoteTestExt, PROPOSER, VOTER_A, VOTER_B, with_vote};
+use super::{with_vote, VoteTestExt, PROPOSER, VOTER_A, VOTER_B};
 
 const OUTSIDER: Address = address!("0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead");
 
@@ -136,13 +136,23 @@ fn begin_block_does_not_tally_at_exact_deadline() {
         let deadline = record.voting_deadline_height;
         vote.process_begin_block_test(deadline).unwrap();
         assert_eq!(
-            vote.proposals.get(proposal_id).unwrap().unwrap().proposal_status().unwrap(),
+            vote.proposals
+                .get(proposal_id)
+                .unwrap()
+                .unwrap()
+                .proposal_status()
+                .unwrap(),
             ProposalStatus::Pending
         );
 
         vote.process_begin_block_test(deadline + 1).unwrap();
         assert_ne!(
-            vote.proposals.get(proposal_id).unwrap().unwrap().proposal_status().unwrap(),
+            vote.proposals
+                .get(proposal_id)
+                .unwrap()
+                .unwrap()
+                .proposal_status()
+                .unwrap(),
             ProposalStatus::Pending
         );
     });

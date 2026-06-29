@@ -273,24 +273,6 @@ fn startup_binary_version_check_allows_pre_vote_chain() {
 }
 
 #[test]
-fn localnet_update_smoke_propose_vote_activate_via_cli() {
-    assert!(
-        false,
-        "localnet update smoke not implemented: bootstrap 4-validator localnet, \
-         propose/vote via outbe-cli, wait for activation, verify outbe_getUpdateActiveVersion"
-    );
-}
-
-#[test]
-fn multi_node_update_flow_produces_same_state_root() {
-    assert!(
-        false,
-        "multi-node determinism harness for update flow not implemented: \
-         run identical vote/update flows on 4 nodes with permuted vote order and compare state roots"
-    );
-}
-
-#[test]
 fn full_vote_update_flow_3_of_4_yes_approves_schedules_and_activates() {
     with_vote_runtime_at(100, |storage, current| {
         let activation = proposal_activation(current);

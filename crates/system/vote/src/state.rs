@@ -6,7 +6,7 @@ use tracing::warn;
 
 use crate::constants::MAX_PAGE_SIZE;
 use crate::errors::VoteError;
-use crate::schema::{Vote, ProposalRecord, VoteRecord};
+use crate::schema::{ProposalRecord, Vote, VoteRecord};
 
 pub use crate::schema::ProposalStatus;
 
@@ -77,10 +77,7 @@ pub struct VoteInfo {
 }
 
 impl VoteRecord {
-    pub fn into_vote_info(
-        self,
-        proposal_id: U256,
-    ) -> std::result::Result<VoteInfo, VoteError> {
+    pub fn into_vote_info(self, proposal_id: U256) -> std::result::Result<VoteInfo, VoteError> {
         Ok(VoteInfo {
             proposal_id,
             voter: self.voter,
@@ -196,8 +193,7 @@ impl<'storage> Vote<'storage> {
         index: U256,
         count: U256,
     ) -> Result<Vec<Address>> {
-        self
-            .proposals
+        self.proposals
             .get(proposal_id)?
             .ok_or(VoteError::ProposalNotFound)?;
         let (index, count) = clamp_page(index, count);
@@ -261,7 +257,11 @@ impl<'storage> Vote<'storage> {
                 matched.push(proposal_id);
             }
         }
-        Ok(matched.into_iter().skip(start_index).take(page_size).collect())
+        Ok(matched
+            .into_iter()
+            .skip(start_index)
+            .take(page_size)
+            .collect())
     }
 
     pub fn list_pending_proposal_ids(&self) -> Result<Vec<U256>> {
@@ -308,8 +308,7 @@ impl<'storage> Vote<'storage> {
         block_number: u64,
     ) -> Result<()> {
         let key = vote_key(proposal_id, voter);
-        self
-            .proposals
+        self.proposals
             .get(proposal_id)?
             .ok_or(VoteError::ProposalNotFound)?;
         let votes = self.proposal_voters.list(&proposal_id);

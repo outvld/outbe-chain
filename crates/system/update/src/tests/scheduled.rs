@@ -5,8 +5,8 @@ use outbe_primitives::error::PrecompileError;
 use crate::api::{
     get_active_version, is_version_active_eq, is_version_active_gte, version_at_height,
 };
-use crate::schema::Update;
 use crate::schema::ScheduledUpdateStatus;
+use crate::schema::Update;
 
 use super::{min_activation, schedule_update, with_update, V1_2, V1_3, V1_5, V2_0};
 
@@ -115,15 +115,8 @@ fn rejects_conflicting_activation_height() {
         let activation = min_activation(current);
         schedule_update(&mut update, U256::from(1), V1_2, activation, b"", current).unwrap();
 
-        let err = schedule_update(
-            &mut update,
-            U256::from(2),
-            V1_2,
-            activation,
-            b"",
-            current,
-        )
-        .unwrap_err();
+        let err = schedule_update(&mut update, U256::from(2), V1_2, activation, b"", current)
+            .unwrap_err();
         assert!(matches!(
             err,
             PrecompileError::Revert(msg) if msg.contains("activation height")

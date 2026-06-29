@@ -304,7 +304,10 @@ impl Rpc for RpcClient {
 
     async fn outbe_get_update_scheduled_update(&self, proposal_id: U256) -> Result<Option<Value>> {
         let result = self
-            .call_rpc("outbe_getUpdateScheduledUpdate", serde_json::json!([proposal_id]))
+            .call_rpc(
+                "outbe_getUpdateScheduledUpdate",
+                serde_json::json!([proposal_id]),
+            )
             .await?;
         if result.is_null() {
             Ok(None)
@@ -314,8 +317,11 @@ impl Rpc for RpcClient {
     }
 
     async fn outbe_list_update_waiting_for_activation(&self) -> Result<Value> {
-        self.call_rpc("outbe_listUpdateWaitingForActivation", serde_json::json!([]))
-            .await
+        self.call_rpc(
+            "outbe_listUpdateWaitingForActivation",
+            serde_json::json!([]),
+        )
+        .await
     }
 
     async fn eth_get_logs(
@@ -530,7 +536,10 @@ pub mod mock {
         async fn outbe_get_update_active_version(&self) -> Result<Value> {
             clone_result(&self.update_active_version)
         }
-        async fn outbe_get_update_scheduled_update(&self, _proposal_id: U256) -> Result<Option<Value>> {
+        async fn outbe_get_update_scheduled_update(
+            &self,
+            _proposal_id: U256,
+        ) -> Result<Option<Value>> {
             clone_result(&self.update_scheduled_update)
         }
         async fn outbe_list_update_waiting_for_activation(&self) -> Result<Value> {
@@ -642,7 +651,10 @@ pub mod mock {
                 .into_value("outbe_getUpdateActiveVersion")
         }
 
-        async fn outbe_get_update_scheduled_update(&self, proposal_id: U256) -> Result<Option<Value>> {
+        async fn outbe_get_update_scheduled_update(
+            &self,
+            proposal_id: U256,
+        ) -> Result<Option<Value>> {
             let value = self
                 .next_response(RecordedRpcCall::OutbeGetUpdateScheduledUpdate { proposal_id })?
                 .into_value("outbe_getUpdateScheduledUpdate")?;

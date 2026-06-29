@@ -4,11 +4,11 @@ use alloy_primitives::U256;
 use alloy_sol_types::SolCall;
 use clap::Subcommand;
 use eyre::{Result, WrapErr};
-use outbe_vote::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 use outbe_update::constants::PROTOCOL_VERSION;
 use outbe_update::payload::decode_scheduled_update_payload;
-use outbe_update::version::{format_protocol_version, try_parse_protocol_version, ProtocolVersionParseError};
+use outbe_update::version::{format_protocol_version, try_parse_protocol_version};
 use outbe_update::{encode_scheduled_update_payload, ProtocolVersion};
+use outbe_vote::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 use serde_json::Value;
 
 use crate::abi::{IVote, VOTE_ADDRESS};
@@ -131,7 +131,10 @@ fn ensure_propose_version_compatible(
     Ok(())
 }
 
-fn ensure_approve_version_compatible(proposal_version: ProtocolVersion, binary: ProtocolVersion) -> Result<()> {
+fn ensure_approve_version_compatible(
+    proposal_version: ProtocolVersion,
+    binary: ProtocolVersion,
+) -> Result<()> {
     if proposal_version > binary {
         eyre::bail!(
             "proposal version {} exceeds binary protocol version {}; upgrade the binary or use --force",
@@ -156,13 +159,14 @@ async fn fetch_vote_proposal(
     client: &(impl Rpc + Sync),
     proposal_id: U256,
 ) -> Result<IVote::ProposalInfo> {
-    let call = IVote::getProposalCall { proposalId: proposal_id };
+    let call = IVote::getProposalCall {
+        proposalId: proposal_id,
+    };
     let ret = client
         .eth_call(VOTE_ADDRESS, &call.abi_encode())
         .await
         .wrap_err("vote getProposal eth_call failed")?;
-    IVote::getProposalCall::abi_decode_returns(&ret)
-        .wrap_err("failed to decode vote proposal")
+    IVote::getProposalCall::abi_decode_returns(&ret).wrap_err("failed to decode vote proposal")
 }
 
 async fn propose(
@@ -188,12 +192,7 @@ async fn propose(
         payload: payload.into(),
     };
     let tx_hash = signer
-        .send_tx(
-            client,
-            VOTE_ADDRESS,
-            call.abi_encode(),
-            U256::ZERO,
-        )
+        .send_tx(client, VOTE_ADDRESS, call.abi_encode(), U256::ZERO)
         .await?;
     println!(
         "Proposal transaction sent: {tx_hash} (version {})",
@@ -221,16 +220,9 @@ async fn vote(
         approve,
     };
     let tx_hash = signer
-        .send_tx(
-            client,
-            VOTE_ADDRESS,
-            call.abi_encode(),
-            U256::ZERO,
-        )
+        .send_tx(client, VOTE_ADDRESS, call.abi_encode(), U256::ZERO)
         .await?;
-    println!(
-        "Vote transaction sent: {tx_hash} (proposal {proposal_id}, approve={approve})"
-    );
+    println!("Vote transaction sent: {tx_hash} (proposal {proposal_id}, approve={approve})");
     Ok(())
 }
 
@@ -323,12 +315,12 @@ fn print_scheduled_update(label: &str, scheduled: &Value) {
 mod tests {
     use super::*;
     use crate::abi::VOTE_ADDRESS;
-    use crate::Cli;
     use crate::rpc::mock::{call_map, recording_send_tx_rpc, MockRpc};
+    use crate::Cli;
     use alloy_primitives::Address;
     use alloy_sol_types::SolCall;
     use clap::Parser;
-    use outbe_update::encode_protocol_version;
+    use outbe_update::{encode_protocol_version, version::ProtocolVersionParseError};
     use std::collections::HashMap;
 
     #[test]
@@ -360,13 +352,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_update_status_with_proposal_id() {
-        let cli = Cli::try_parse_from([
-            "outbe-cli",
-            "update",
-            "status",
-            "--proposal-id",
-            "1",
-        ]);
+        let cli = Cli::try_parse_from(["outbe-cli", "update", "status", "--proposal-id", "1"]);
         assert!(cli.is_ok());
     }
 
@@ -398,27 +384,15 @@ mod tests {
 
     #[test]
     fn test_cli_parse_update_vote_yes() {
-        let cli = Cli::try_parse_from([
-            "outbe-cli",
-            "update",
-            "vote",
-            "--proposal-id",
-            "1",
-            "--yes",
-        ]);
+        let cli =
+            Cli::try_parse_from(["outbe-cli", "update", "vote", "--proposal-id", "1", "--yes"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_update_vote_no() {
-        let cli = Cli::try_parse_from([
-            "outbe-cli",
-            "update",
-            "vote",
-            "--proposal-id",
-            "1",
-            "--no",
-        ]);
+        let cli =
+            Cli::try_parse_from(["outbe-cli", "update", "vote", "--proposal-id", "1", "--no"]);
         assert!(cli.is_ok());
     }
 
@@ -448,13 +422,8 @@ mod tests {
             action: SCHEDULE_UPDATE_ACTION,
             payload: payload.into(),
         };
-        let rpc = recording_send_tx_rpc(
-            private_key,
-            VOTE_ADDRESS,
-            call.abi_encode(),
-            U256::ZERO,
-        )
-        .unwrap();
+        let rpc = recording_send_tx_rpc(private_key, VOTE_ADDRESS, call.abi_encode(), U256::ZERO)
+            .unwrap();
         UpdateCmd::Propose {
             version: Some("1.2".to_string()),
             activation_height: 1000,
@@ -474,13 +443,8 @@ mod tests {
             proposalId: proposal_id,
             approve: true,
         };
-        let rpc = recording_send_tx_rpc(
-            private_key,
-            VOTE_ADDRESS,
-            call.abi_encode(),
-            U256::ZERO,
-        )
-        .unwrap();
+        let rpc = recording_send_tx_rpc(private_key, VOTE_ADDRESS, call.abi_encode(), U256::ZERO)
+            .unwrap();
         UpdateCmd::Vote {
             proposal_id,
             yes: true,
@@ -509,7 +473,10 @@ mod tests {
             info: None,
             force: false,
         }
-        .run(&mock, Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"))
+        .run(
+            &mock,
+            Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"),
+        )
         .await
         .unwrap_err();
         assert!(err.to_string().contains("must be greater than active"));
@@ -521,10 +488,7 @@ mod tests {
         let proposal = mock_proposal_info(proposal_id, encode_protocol_version(9, 0));
         let mut map = HashMap::new();
         map.insert(
-            (
-                VOTE_ADDRESS,
-                IVote::getProposalCall::SELECTOR,
-            ),
+            (VOTE_ADDRESS, IVote::getProposalCall::SELECTOR),
             IVote::getProposalCall::abi_encode_returns(&proposal),
         );
         let mock = MockRpc {
@@ -537,7 +501,10 @@ mod tests {
             no: false,
             force: false,
         }
-        .run(&mock, Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"))
+        .run(
+            &mock,
+            Some("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"),
+        )
         .await
         .unwrap_err();
         assert!(err.to_string().contains("exceeds binary protocol version"));
@@ -577,10 +544,7 @@ mod tests {
 
         let mut map = HashMap::new();
         map.insert(
-            (
-                VOTE_ADDRESS,
-                IVote::getProposalCall::SELECTOR,
-            ),
+            (VOTE_ADDRESS, IVote::getProposalCall::SELECTOR),
             IVote::getProposalCall::abi_encode_returns(&proposal),
         );
 

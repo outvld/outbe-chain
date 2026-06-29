@@ -200,17 +200,18 @@ run = './scripts/clean-testnet-data.sh "$OUT_DIR"'
 description = "4-validator multi-node consensus smoke (bootstrap → lockstep height → stop)"
 run = './scripts/localnet-smoke.sh'
 
-# Full S1-S7 gramine-mock TEE e2e scenario suite. Builds the node + mock
-# enclave, then runs all five scenario scripts. Requires sudo + gramine + the
-# `outbe-tee-enclave-gramine` docker image (joiner enclave). Runnable on any box
-# with gramine-direct (no SGX hardware required for the mock); the real-SGX smoke
-# is `sgx-smoke`.
+# Full S1-S7 gramine-mock TEE e2e scenario suite plus update operator smoke.
+# Builds the node, CLI, and mock enclave, then runs all scenario scripts.
+# Requires sudo + gramine + the `outbe-tee-enclave-gramine` docker image (joiner
+# enclave). Runnable on any box with gramine-direct (no SGX hardware required for
+# the mock); the real-SGX smoke is `sgx-smoke`.
 [tasks.e2e]
-description = "Run the S1-S7 gramine-mock TEE e2e scenario suite"
+description = "Run the gramine-mock TEE e2e scenario suite (S1-S7 + update operator flow)"
 run = """
 cargo build -p outbe-chain --bin outbe-chain
+cargo build --bin outbe-cli
 cargo build --release -p outbe-tee-enclave --features mock --bin outbe-tee-enclave-mock
-for s in s1_s2_s6_s3_lifecycle s4_restart_active s5_dkg_failure s7a_downtime_slash s7b_stale_join; do
+for s in s1_s2_s6_s3_lifecycle s4_restart_active s5_dkg_failure s7a_downtime_slash s7b_stale_join update_operator_flow; do
   echo "=== e2e $s ==="
   ./scripts/e2e/$s.sh || exit 1
 done

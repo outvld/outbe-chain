@@ -95,7 +95,11 @@ impl<'storage, K: StorageKey, V: Storable> Map<'storage, K, V> {
 
 impl<'storage, K: StorageKey, T: Storable> Map<'storage, K, StorageVec<'storage, T>> {
     pub fn list(&self, key: &K) -> StorageVec<'storage, T> {
-        StorageVec::new(key.mapping_slot(self.base_slot), self.address, self.storage.clone())
+        StorageVec::new(
+            key.mapping_slot(self.base_slot),
+            self.address,
+            self.storage.clone(),
+        )
     }
 }
 

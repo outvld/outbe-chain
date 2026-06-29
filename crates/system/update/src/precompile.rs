@@ -9,8 +9,8 @@ use outbe_primitives::storage::StorageHandle;
 
 use crate::api::is_version_active_eq;
 use crate::errors::UpdateError;
-use crate::schema::Update;
 use crate::schema::ScheduledUpdateStatus;
+use crate::schema::Update;
 use crate::state::ScheduledUpdateInfo;
 use crate::ProtocolVersion;
 
@@ -30,26 +30,21 @@ pub fn dispatch(
     value: U256,
 ) -> Result<Bytes> {
     reject_value(&value)?;
-    dispatch_call(
-        data,
-        IUpdate::IUpdateCalls::abi_decode,
-        |call| dispatch_update_call(storage, call),
-    )
+    dispatch_call(data, IUpdate::IUpdateCalls::abi_decode, |call| {
+        dispatch_update_call(storage, call)
+    })
 }
 
-fn dispatch_update_call(
-    storage: StorageHandle<'_>,
-    call: IUpdate::IUpdateCalls,
-) -> Result<Bytes> {
+fn dispatch_update_call(storage: StorageHandle<'_>, call: IUpdate::IUpdateCalls) -> Result<Bytes> {
     let update = Update::new(storage.clone());
     use IUpdate::IUpdateCalls::*;
     match call {
         getActiveVersion(_) => metadata::<IUpdate::getActiveVersionCall>(|| {
             Ok(update.get_active_version()?.unwrap_or_default().into())
         }),
-        getActiveVersionHeight(_) => metadata::<IUpdate::getActiveVersionHeightCall>(|| {
-            update.get_active_version_height()
-        }),
+        getActiveVersionHeight(_) => {
+            metadata::<IUpdate::getActiveVersionHeightCall>(|| update.get_active_version_height())
+        }
         isVersionActive(c) => view(c, |c| {
             is_version_active_eq(storage.clone(), ProtocolVersion::from(c.version))
         }),
@@ -59,11 +54,9 @@ fn dispatch_update_call(
                 .ok_or(UpdateError::ScheduledUpdateNotFound)?;
             Ok(scheduled_update_return(&scheduled))
         }),
-        listWaitingForActivation(_) => {
-            metadata::<IUpdate::listWaitingForActivationCall>(|| {
-                update.list_waiting_for_activation_proposal_ids()
-            })
-        }
+        listWaitingForActivation(_) => metadata::<IUpdate::listWaitingForActivationCall>(|| {
+            update.list_waiting_for_activation_proposal_ids()
+        }),
     }
 }
 

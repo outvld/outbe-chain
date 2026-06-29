@@ -9,13 +9,17 @@ and tallies PASS/FAIL assertions. Adapted to the **actual** protocol where
 ## Run
 
 ```sh
-# build first: cargo build -p outbe-chain --bin outbe-chain && cargo build --release -p outbe-tee-enclave --features mock --bin outbe-tee-enclave-mock
+# build first (or: mise run e2e — builds and runs the full suite)
+# cargo build -p outbe-chain --bin outbe-chain
+# cargo build --bin outbe-cli
+# cargo build --release -p outbe-tee-enclave --features mock --bin outbe-tee-enclave-mock
 sudo true                       # scripts use sudo for run-testnet.sh / docker
 scripts/e2e/s1_s2_s6_s3_lifecycle.sh   # S1 + S2 + S6 + S3 on one chain
 scripts/e2e/s4_restart_active.sh       # S4
 scripts/e2e/s5_dkg_failure.sh          # S5
 scripts/e2e/s7a_downtime_slash.sh      # S7 (slashing)
 scripts/e2e/s7b_stale_join.sh          # S7 (stale join)
+scripts/e2e/update_operator_flow.sh    # update propose/vote/status smoke
 ```
 
 Each prints `<NAME> SCENARIO_PASS` / `SCENARIO_FAIL` and an `N passed, M failed`
@@ -73,6 +77,9 @@ consensus `30404`, tee `7004`.
   the jail/slash/unjail mechanism is unit-tested.
 - **S7b** (`s7b_stale_join.sh`): unconfirmed PENDING joiner stays out of a full
   reshare cycle; confirm-ready → next reshare activates it.
+- **Update operator** (`update_operator_flow.sh`): `outbe-cli update propose/vote/status`
+  on a 4-validator TEE localnet; proposal visible while pending, yes-vote tally,
+  state-root parity. Does not wait through the voting window or activation (Rust e2e).
 
 ## Caveats
 

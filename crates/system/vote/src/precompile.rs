@@ -72,8 +72,8 @@ fn dispatch_vote_call(
             Ok(())
         }),
         getProposal(c) => view(c, |c| {
-            let info = get_proposal(storage.clone(), c.proposalId)?
-                .ok_or(VoteError::ProposalNotFound)?;
+            let info =
+                get_proposal(storage.clone(), c.proposalId)?.ok_or(VoteError::ProposalNotFound)?;
             Ok(proposal_info_return(&info))
         }),
         getProposalVoters(c) => view(c, |c| {
