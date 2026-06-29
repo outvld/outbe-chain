@@ -6897,6 +6897,7 @@ dependencies = [
  "outbe-update",
  "outbe-validatorset",
  "outbe-vaultprovider",
+ "outbe-vote",
 ]
 
 [[package]]

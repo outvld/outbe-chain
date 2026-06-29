@@ -147,6 +147,57 @@ fn dispatch_views_return_abi_shaped_data() {
     });
 }
 
+#[test]
+fn dispatch_create_proposal_rejects_non_zero_value_before_state_change() {
+    with_vote_provider(100, |storage| {
+        let vote = Vote::new(storage.clone());
+        let before = vote.proposal_count.read().unwrap();
+        let data = IVote::createProposalCall {
+            targetModule: UPDATE_TARGET_MODULE,
+            action: SCHEDULE_UPDATE_ACTION,
+            payload: b"payload".into(),
+        }
+        .abi_encode();
+        let err = dispatch(storage.clone(), &data, PROPOSER, U256::from(1)).unwrap_err();
+        assert!(matches!(
+            err,
+            PrecompileError::Revert(msg) if msg.contains("non-payable")
+        ));
+        assert_eq!(vote.proposal_count.read().unwrap(), before);
+    });
+}
+
+#[test]
+fn dispatch_cast_vote_rejects_non_zero_value_before_state_change() {
+    with_vote_provider(100, |storage| {
+        let mut vote = Vote::new(storage.clone());
+        let proposal_id = vote
+            .create_proposal(
+                PROPOSER,
+                UPDATE_TARGET_MODULE,
+                SCHEDULE_UPDATE_ACTION,
+                b"",
+                100,
+            )
+            .unwrap();
+        let voters_before = vote.read_proposal_voters(proposal_id).unwrap().len();
+        let data = IVote::castVoteCall {
+            proposalId: proposal_id,
+            approve: true,
+        }
+        .abi_encode();
+        let err = dispatch(storage.clone(), &data, VOTER_A, U256::from(1)).unwrap_err();
+        assert!(matches!(
+            err,
+            PrecompileError::Revert(msg) if msg.contains("non-payable")
+        ));
+        assert_eq!(
+            vote.read_proposal_voters(proposal_id).unwrap().len(),
+            voters_before
+        );
+    });
+}
+
 fn has_event(
     provider: &HashMapStorageProvider,
     topic0: alloy_primitives::B256,

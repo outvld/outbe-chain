@@ -26,6 +26,7 @@ pub(super) const VALIDATOR_OWNER: Address =
     address!("0xffffffffffffffffffffffffffffffffffffffff");
 
 mod dispatch;
+mod guards;
 mod precompile;
 
 fn dummy_pubkey(seed: u8) -> [u8; 48] {

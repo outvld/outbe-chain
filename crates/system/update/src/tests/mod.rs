@@ -17,7 +17,7 @@ mod lifecycle;
 mod precompile;
 mod records;
 mod scheduled;
-mod spec_expected_fail;
+mod unset_version;
 
 pub(super) const V1_2: ProtocolVersion = encode_protocol_version(1, 2);
 pub(super) const V1_3: ProtocolVersion = encode_protocol_version(1, 3);
