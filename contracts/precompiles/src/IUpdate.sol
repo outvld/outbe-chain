@@ -7,8 +7,9 @@ pragma solidity ^0.8.30;
 /// is handled by inner cross-module API after approval. (see: /crates/system/update/)
 interface IUpdate {
     enum ScheduledUpdateStatus {
-        Pending,
-        Activated
+        Scheduled,
+        Activated,
+        Canceled
     }
 
     struct ScheduledUpdate {
@@ -21,6 +22,9 @@ interface IUpdate {
 
     /// @notice Emitted when the proposed upgrade is activated.
     event UpgradeActivated(uint32 version, uint64 activationHeight);
+
+    /// @notice Emitted when a scheduled update is canceled and dropped from activation.
+    event UpgradeCanceled(uint256 indexed proposalId, uint32 version, uint64 activationHeight);
 
     /// @notice Emitted when a new update was accepted by vote.
     event ScheduledUpdateCreated(

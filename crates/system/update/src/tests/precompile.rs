@@ -46,7 +46,7 @@ fn dispatch_get_scheduled_update() {
         assert_eq!(ret.proposalId, proposal_id);
         assert_eq!(ret.version, V1_2.raw());
         assert_eq!(ret.info.as_ref(), b"notes");
-        assert_eq!(ret.status, IUpdate::ScheduledUpdateStatus::Pending);
+        assert_eq!(ret.status, IUpdate::ScheduledUpdateStatus::Scheduled);
     });
 }
 

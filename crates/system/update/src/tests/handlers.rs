@@ -141,7 +141,7 @@ fn handler_failure_is_fatal_and_leaves_update_unactivated() {
                 .unwrap()
                 .unwrap()
                 .status,
-            ScheduledUpdateStatus::Pending
+            ScheduledUpdateStatus::Scheduled
         );
         assert_ne!(get_active_version(storage).unwrap(), V1_2);
     });

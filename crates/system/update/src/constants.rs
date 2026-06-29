@@ -5,6 +5,9 @@
 /// Minimum blocks between vote approval and activation height.
 pub const MIN_ACTIVATION_BUFFER: u64 = 100;
 
+/// Maximum scheduled updates waiting for activation height.
+pub const MAX_WAITING_FOR_ACTIVATION_UPDATES: u32 = 64;
+
 /// Current binary protocol version.
 pub const PROTOCOL_VERSION: crate::ProtocolVersion =
     crate::encode_protocol_version(PROTOCOL_VERSION_MAJOR, PROTOCOL_VERSION_MINOR);

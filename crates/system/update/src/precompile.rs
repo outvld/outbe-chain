@@ -62,8 +62,9 @@ fn dispatch_update_call(storage: StorageHandle<'_>, call: IUpdate::IUpdateCalls)
 
 fn scheduled_update_return(scheduled: &ScheduledUpdateInfo) -> IUpdate::ScheduledUpdate {
     let status = match scheduled.status {
-        ScheduledUpdateStatus::Pending => IUpdate::ScheduledUpdateStatus::Pending,
+        ScheduledUpdateStatus::Scheduled => IUpdate::ScheduledUpdateStatus::Scheduled,
         ScheduledUpdateStatus::Activated => IUpdate::ScheduledUpdateStatus::Activated,
+        ScheduledUpdateStatus::Canceled => IUpdate::ScheduledUpdateStatus::Canceled,
     };
     IUpdate::ScheduledUpdate {
         proposalId: scheduled.proposal_id,

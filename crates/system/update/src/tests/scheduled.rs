@@ -30,7 +30,7 @@ fn schedule_update_writes_fields_and_waiting_index() {
         assert_eq!(scheduled.proposal_id, proposal_id);
         assert_eq!(scheduled.version, V1_2);
         assert_eq!(scheduled.activation_height, min_activation(current));
-        assert_eq!(scheduled.status, ScheduledUpdateStatus::Pending);
+        assert_eq!(scheduled.status, ScheduledUpdateStatus::Scheduled);
         assert_eq!(scheduled.info, b"release-notes");
         assert_eq!(
             update.list_waiting_for_activation_proposal_ids().unwrap(),
@@ -120,6 +120,40 @@ fn rejects_conflicting_activation_height() {
         assert!(matches!(
             err,
             PrecompileError::Revert(msg) if msg.contains("activation height")
+        ));
+    });
+}
+
+#[test]
+fn max_waiting_for_activation_updates_is_enforced() {
+    with_update(|storage| {
+        let mut update = Update::new(storage.clone());
+        let current = 100u64;
+        let base_activation = min_activation(current);
+        for i in 0..crate::constants::MAX_WAITING_FOR_ACTIVATION_UPDATES {
+            schedule_update(
+                &mut update,
+                U256::from(i + 1),
+                V1_2,
+                base_activation + i as u64,
+                b"",
+                current,
+            )
+            .unwrap();
+        }
+
+        let err = schedule_update(
+            &mut update,
+            U256::from(65),
+            V1_2,
+            base_activation + 64,
+            b"",
+            current,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            PrecompileError::Revert(msg) if msg.contains("too many scheduled updates waiting")
         ));
     });
 }

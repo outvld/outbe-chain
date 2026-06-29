@@ -10,15 +10,17 @@ use crate::ProtocolVersion;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ScheduledUpdateStatus {
-    Pending = 0,
+    Scheduled = 0,
     Activated = 1,
+    Canceled = 2,
 }
 
 impl ScheduledUpdateStatus {
     pub fn from_u8(value: u8) -> std::result::Result<Self, UpdateError> {
         match value {
-            0 => Ok(Self::Pending),
+            0 => Ok(Self::Scheduled),
             1 => Ok(Self::Activated),
+            2 => Ok(Self::Canceled),
             _ => Err(UpdateError::InvalidScheduledUpdateStatus),
         }
     }

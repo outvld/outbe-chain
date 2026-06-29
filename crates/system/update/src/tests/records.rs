@@ -8,11 +8,12 @@ use super::{with_update, V9_8};
 
 #[test]
 fn scheduled_update_status_roundtrip() {
-    assert_eq!(ScheduledUpdateStatus::Pending.to_u8(), 0);
+    assert_eq!(ScheduledUpdateStatus::Scheduled.to_u8(), 0);
     assert_eq!(ScheduledUpdateStatus::Activated.to_u8(), 1);
+    assert_eq!(ScheduledUpdateStatus::Canceled.to_u8(), 2);
     assert_eq!(
         ScheduledUpdateStatus::from_u8(0).unwrap(),
-        ScheduledUpdateStatus::Pending
+        ScheduledUpdateStatus::Scheduled
     );
 }
 
@@ -38,7 +39,7 @@ fn scheduled_update_record_dynamic_fields_roundtrip() {
             version: V9_8,
             activation_height: 200,
             info: b"dynamic-bytes-payload".to_vec(),
-            status: ScheduledUpdateStatus::Pending.to_u8(),
+            status: ScheduledUpdateStatus::Scheduled.to_u8(),
         };
         update.scheduled_updates.create(&record).unwrap();
         let loaded = update.scheduled_updates.get(proposal_id).unwrap().unwrap();

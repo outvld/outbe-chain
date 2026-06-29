@@ -102,7 +102,7 @@ impl Update<'_> {
             version,
             activation_height,
             info: info.to_vec(),
-            status: ScheduledUpdateStatus::Pending.to_u8(),
+            status: ScheduledUpdateStatus::Scheduled.to_u8(),
         };
         self.scheduled_updates.create(&record)?;
         self.waiting_for_activation_proposal_ids.push(proposal_id)?;
@@ -129,7 +129,7 @@ impl Update<'_> {
         record.set_scheduled_update_status(new_status);
         self.scheduled_updates.update(&record)?;
 
-        if old_status == ScheduledUpdateStatus::Pending {
+        if old_status == ScheduledUpdateStatus::Scheduled {
             self.remove_waiting_for_activation_proposal_id(proposal_id)?;
         }
         Ok(())

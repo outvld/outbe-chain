@@ -17,6 +17,8 @@ pub enum UpdateError {
     InvalidPayload,
     #[error("another scheduled update already uses this activation height")]
     ActivationConflict,
+    #[error("too many scheduled updates waiting for activation")]
+    TooManyWaitingForActivation,
     #[error("invalid scheduled update status")]
     InvalidScheduledUpdateStatus,
 }

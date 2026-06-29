@@ -69,7 +69,7 @@ fn second_schedule_at_same_height_is_rejected() {
 }
 
 #[test]
-fn activate_scheduled_update_skips_stale_lower_version() {
+fn activate_scheduled_update_cancels_stale_lower_version() {
     with_update(|storage| {
         let mut update = Update::new(storage.clone());
         let current = 100u64;
@@ -97,20 +97,25 @@ fn activate_scheduled_update_skips_stale_lower_version() {
         update.process_begin_block_test(activation_early).unwrap();
         assert_eq!(get_active_version(storage.clone()).unwrap(), V1_3);
 
-        update.process_begin_block_test(activation_late).unwrap();
-        assert_eq!(
-            get_active_version(storage.clone()).unwrap(),
-            V1_3,
-            "activating an older scheduled update must not downgrade active version"
-        );
         let stale = update
             .read_scheduled_update(U256::from(2))
             .unwrap()
             .unwrap();
         assert_eq!(
             stale.status,
-            ScheduledUpdateStatus::Pending,
-            "stale lower-version update should remain pending or be rejected, not activated"
+            ScheduledUpdateStatus::Canceled,
+            "stale lower-version update should be canceled when newer version activates"
+        );
+        assert!(update
+            .list_waiting_for_activation_proposal_ids()
+            .unwrap()
+            .is_empty());
+
+        update.process_begin_block_test(activation_late).unwrap();
+        assert_eq!(
+            get_active_version(storage.clone()).unwrap(),
+            V1_3,
+            "activating an older scheduled update must not downgrade active version"
         );
     });
 }

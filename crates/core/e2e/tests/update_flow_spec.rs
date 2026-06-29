@@ -438,6 +438,11 @@ fn activation_does_not_downgrade_when_newer_version_already_active() {
             Update::new(storage.clone()).get_active_version().unwrap(),
             V1_3
         );
+        let stale = Update::new(storage.clone())
+            .read_scheduled_update(U256::from(2))
+            .unwrap()
+            .unwrap();
+        assert_eq!(stale.status, ScheduledUpdateStatus::Canceled);
 
         run_update_begin_block(storage.clone(), activation_late);
         assert_eq!(

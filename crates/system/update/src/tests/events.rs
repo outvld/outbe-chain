@@ -8,7 +8,7 @@ use crate::precompile::{dispatch, IUpdate};
 use crate::schema::Update;
 
 use super::{
-    min_activation, schedule_update, with_update, with_update_provider, UpdateTestExt, V1_2,
+    min_activation, schedule_update, with_update, with_update_provider, UpdateTestExt, V1_2, V1_3,
 };
 
 #[test]
@@ -46,6 +46,40 @@ fn lifecycle_emits_upgrade_activated_event() {
     assert!(has_event(
         &provider,
         IUpdate::UpgradeActivated::SIGNATURE_HASH
+    ));
+}
+
+#[test]
+fn lifecycle_emits_upgrade_canceled_event() {
+    let provider = with_update_provider(|storage| {
+        let mut update = Update::new(storage.clone());
+        let current = 100u64;
+        let activation_early = min_activation(current);
+        let activation_late = activation_early + 500;
+        schedule_update(
+            &mut update,
+            U256::from(1),
+            V1_3,
+            activation_early,
+            b"",
+            current,
+        )
+        .unwrap();
+        schedule_update(
+            &mut update,
+            U256::from(2),
+            V1_2,
+            activation_late,
+            b"",
+            current,
+        )
+        .unwrap();
+        update.process_begin_block_test(activation_early).unwrap();
+    });
+
+    assert!(has_event(
+        &provider,
+        IUpdate::UpgradeCanceled::SIGNATURE_HASH
     ));
 }
 

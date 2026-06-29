@@ -3,7 +3,7 @@ use alloy_primitives::U256;
 use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::{PrecompileError, Result};
 
-use crate::constants::MIN_ACTIVATION_BUFFER;
+use crate::constants::{MAX_WAITING_FOR_ACTIVATION_UPDATES, MIN_ACTIVATION_BUFFER};
 use crate::errors::UpdateError;
 use crate::handlers::UpgradeHandlerRegistry;
 use crate::payload::decode_scheduled_update_payload;
@@ -41,6 +41,11 @@ impl Update<'_> {
             return Err(UpdateError::ActivationConflict.into());
         }
 
+        let waiting_len = self.waiting_for_activation_proposal_ids.len()? as u32;
+        if waiting_len >= MAX_WAITING_FOR_ACTIVATION_UPDATES {
+            return Err(UpdateError::TooManyWaitingForActivation.into());
+        }
+
         self.write_scheduled_update(proposal_id, version, activation_height, &info)?;
         self.emit(IUpdate::ScheduledUpdateCreated {
             proposalId: proposal_id,
@@ -62,7 +67,7 @@ impl Update<'_> {
             let Some(scheduled) = self.read_scheduled_update(proposal_id)? else {
                 return Err(UpdateError::ScheduledUpdateNotFound.into());
             };
-            if scheduled.status == ScheduledUpdateStatus::Pending
+            if scheduled.status == ScheduledUpdateStatus::Scheduled
                 && block_number >= scheduled.activation_height
             {
                 self.activate_scheduled_update(ctx, registry, proposal_id)?;
@@ -80,18 +85,12 @@ impl Update<'_> {
         let scheduled = self
             .read_scheduled_update(proposal_id)?
             .ok_or(UpdateError::ScheduledUpdateNotFound)?;
-        if scheduled.status != ScheduledUpdateStatus::Pending {
+        if scheduled.status != ScheduledUpdateStatus::Scheduled {
             return Ok(());
         }
         let active = self.get_active_version()?;
         if scheduled.version <= active {
-            tracing::warn!(
-                proposal_id = %proposal_id,
-                scheduled_version = scheduled.version.raw(),
-                active_version = active.raw(),
-                "skipping stale scheduled update activation"
-            );
-            return Ok(());
+            return self.cancel_scheduled_update(proposal_id);
         }
 
         ctx.with_checkpoint(|| {
@@ -110,8 +109,40 @@ impl Update<'_> {
             self.emit(IUpdate::UpgradeActivated {
                 version: scheduled.version.raw(),
                 activationHeight: scheduled.activation_height,
-            })
+            })?;
+            self.cancel_outdated_waiting_updates(scheduled.version)
         })
+    }
+
+    fn cancel_scheduled_update(&mut self, proposal_id: U256) -> Result<()> {
+        let scheduled = self
+            .read_scheduled_update(proposal_id)?
+            .ok_or(UpdateError::ScheduledUpdateNotFound)?;
+        if scheduled.status != ScheduledUpdateStatus::Scheduled {
+            return Ok(());
+        }
+
+        self.set_scheduled_update_status(proposal_id, ScheduledUpdateStatus::Canceled)?;
+        self.emit(IUpdate::UpgradeCanceled {
+            proposalId: proposal_id,
+            version: scheduled.version.raw(),
+            activationHeight: scheduled.activation_height,
+        })
+    }
+
+    fn cancel_outdated_waiting_updates(&mut self, active_version: crate::ProtocolVersion) -> Result<()> {
+        let waiting_ids = self.list_waiting_for_activation_proposal_ids()?;
+        for proposal_id in waiting_ids {
+            let Some(scheduled) = self.read_scheduled_update(proposal_id)? else {
+                continue;
+            };
+            if scheduled.status == ScheduledUpdateStatus::Scheduled
+                && scheduled.version <= active_version
+            {
+                self.cancel_scheduled_update(proposal_id)?;
+            }
+        }
+        Ok(())
     }
 
     fn scheduled_activation_conflict(&self, activation_height: u64) -> Result<bool> {
@@ -119,7 +150,7 @@ impl Update<'_> {
             let Some(scheduled) = self.read_scheduled_update(proposal_id)? else {
                 continue;
             };
-            if scheduled.status == ScheduledUpdateStatus::Pending
+            if scheduled.status == ScheduledUpdateStatus::Scheduled
                 && scheduled.activation_height == activation_height
             {
                 return Ok(true);
