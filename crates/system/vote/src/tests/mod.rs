@@ -369,7 +369,7 @@ fn list_proposals_and_by_status_are_paginated() {
             .unwrap();
         let second = governance
             .create_proposal(
-                PROPOSER,
+                VOTER_A,
                 UPDATE_TARGET_MODULE,
                 SCHEDULE_UPDATE_ACTION,
                 b"two",

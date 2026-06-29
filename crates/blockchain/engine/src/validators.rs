@@ -438,7 +438,7 @@ fn read_active_protocol_version_at_latest(
     let mut provider = ReadOnlyStorageProvider::new(reader);
     let storage = StorageHandle::new(&mut provider);
     let update = outbe_update::schema::Update::new(storage);
-    Ok(update.get_active_version()?.unwrap_or_default())
+    Ok(update.get_active_version()?)
 }
 
 /// Read scheduled updates waiting for activation from the latest committed state.

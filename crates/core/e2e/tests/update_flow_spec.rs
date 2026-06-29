@@ -161,9 +161,19 @@ fn create_update_proposal(
     activation: u64,
     current: u64,
 ) -> U256 {
+    create_update_proposal_from(vote, PROPOSER, version, activation, current)
+}
+
+fn create_update_proposal_from(
+    vote: &mut Vote<'_>,
+    proposer: Address,
+    version: ProtocolVersion,
+    activation: u64,
+    current: u64,
+) -> U256 {
     let payload = encode_scheduled_update_payload(version, activation, b"");
     vote.create_proposal(
-        PROPOSER,
+        proposer,
         UPDATE_TARGET_MODULE,
         SCHEDULE_UPDATE_ACTION,
         &payload,
@@ -299,9 +309,9 @@ fn full_vote_update_flow_3_of_4_yes_approves_schedules_and_activates() {
         run_update_begin_block(storage.clone(), activation);
 
         let update = Update::new(storage.clone());
-        assert_eq!(update.get_active_version().unwrap(), Some(V1_2));
+        assert_eq!(update.get_active_version().unwrap(), V1_2);
         assert_eq!(update.get_active_version_height().unwrap(), activation);
-        assert_eq!(update.version_at_height(activation).unwrap(), Some(V1_2));
+        assert_eq!(update.version_at_height(activation).unwrap(), V1_2);
     });
 }
 
@@ -335,7 +345,7 @@ fn full_vote_update_flow_2_of_4_yes_expires_without_update_state_change() {
     assert!(update.read_scheduled_update(proposal_id).unwrap().is_none());
     assert_eq!(
         update.get_active_version().unwrap(),
-        Some(ProtocolVersion::ZERO)
+        ProtocolVersion::ZERO
     );
     assert_eq!(update.get_active_version_height().unwrap(), 0);
     assert!(!has_update_event(
@@ -366,7 +376,7 @@ fn downgrade_vote_proposal_rejected_without_update_state_change() {
 
         let update = Update::new(storage.clone());
         assert!(update.read_scheduled_update(proposal_id).unwrap().is_none());
-        assert_eq!(update.get_active_version().unwrap(), Some(V1_3));
+        assert_eq!(update.get_active_version().unwrap(), V1_3);
         assert_eq!(update.get_active_version_height().unwrap(), 50);
     });
 }
@@ -383,7 +393,7 @@ fn conflicting_update_proposal_rejected_without_update_state_change() {
                 .unwrap();
         }
 
-        let second = create_update_proposal(&mut vote, V1_3, activation, current);
+        let second = create_update_proposal_from(&mut vote, VOTER_A, V1_3, activation, current);
         vote.cast_vote_approve(second, PROPOSER, true, current + 4)
             .unwrap();
         vote.cast_vote_approve(second, VOTER_A, true, current + 5)
@@ -407,10 +417,10 @@ fn conflicting_update_proposal_rejected_without_update_state_change() {
         let update = Update::new(storage.clone());
         assert!(update.read_scheduled_update(first).unwrap().is_some());
         assert!(update.read_scheduled_update(second).unwrap().is_none());
-        assert_eq!(
-            update.get_active_version().unwrap(),
-            Some(ProtocolVersion::ZERO)
-        );
+    assert_eq!(
+        update.get_active_version().unwrap(),
+        ProtocolVersion::ZERO
+    );
     });
 }
 
@@ -426,13 +436,13 @@ fn activation_does_not_downgrade_when_newer_version_already_active() {
         run_update_begin_block(storage.clone(), activation_early);
         assert_eq!(
             Update::new(storage.clone()).get_active_version().unwrap(),
-            Some(V1_3)
+            V1_3
         );
 
         run_update_begin_block(storage.clone(), activation_late);
         assert_eq!(
             Update::new(storage.clone()).get_active_version().unwrap(),
-            Some(V1_3),
+            V1_3,
             "activating an older scheduled update must not downgrade active version"
         );
     });
@@ -484,7 +494,7 @@ fn executor_runs_vote_before_update() {
             .status,
         ScheduledUpdateStatus::Activated
     );
-    assert_eq!(update.get_active_version().unwrap(), Some(V1_2));
+    assert_eq!(update.get_active_version().unwrap(), V1_2);
 
     let vote = Vote::new(storage.clone());
     let record = vote.proposals.get(proposal_id).unwrap().unwrap();

@@ -1,15 +1,22 @@
-use alloy_primitives::{address, Address};
+use alloy_primitives::{address, Address, U256};
 
 use outbe_primitives::error::PrecompileError;
 
-use crate::constants::MAX_PENDING_PROPOSALS;
+use crate::constants::{MAX_PENDING_PROPOSALS, MAX_PENDING_PROPOSALS_PER_VALIDATOR};
 use crate::schema::ProposalStatus;
 use crate::schema::Vote;
 use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
-use super::{with_vote, VoteTestExt, PROPOSER, VOTER_A, VOTER_B};
+use super::{register_active_validator, with_vote, VoteTestExt, PROPOSER, VOTER_A, VOTER_B};
 
 const OUTSIDER: Address = address!("0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead");
+
+fn extra_validator_addr(index: u32) -> Address {
+    let mut bytes = [0u8; 20];
+    bytes[0] = (index >> 8) as u8;
+    bytes[1] = (index & 0xff) as u8;
+    Address::from(bytes)
+}
 
 #[test]
 fn create_proposal_rejects_non_validator() {
@@ -159,13 +166,113 @@ fn begin_block_does_not_tally_at_exact_deadline() {
 }
 
 #[test]
+fn max_pending_proposals_per_validator_is_enforced() {
+    with_vote(|storage| {
+        let mut vote = Vote::new(storage.clone());
+        let current = 350u64;
+        vote.create_proposal(
+            PROPOSER,
+            UPDATE_TARGET_MODULE,
+            SCHEDULE_UPDATE_ACTION,
+            b"",
+            current,
+        )
+        .unwrap();
+
+        let err = vote
+            .create_proposal(
+                PROPOSER,
+                UPDATE_TARGET_MODULE,
+                SCHEDULE_UPDATE_ACTION,
+                b"",
+                current + 1,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            PrecompileError::Revert(msg) if msg.contains("validator has too many pending")
+        ));
+        assert_eq!(
+            vote.pending_proposal_count_by_proposer(PROPOSER).unwrap(),
+            MAX_PENDING_PROPOSALS_PER_VALIDATOR
+        );
+    });
+}
+
+#[test]
+fn other_validator_can_create_while_proposer_has_pending() {
+    with_vote(|storage| {
+        let mut vote = Vote::new(storage.clone());
+        let current = 360u64;
+        vote.create_proposal(
+            PROPOSER,
+            UPDATE_TARGET_MODULE,
+            SCHEDULE_UPDATE_ACTION,
+            b"",
+            current,
+        )
+        .unwrap();
+
+        vote.create_proposal(
+            VOTER_A,
+            UPDATE_TARGET_MODULE,
+            SCHEDULE_UPDATE_ACTION,
+            b"",
+            current + 1,
+        )
+        .unwrap();
+    });
+}
+
+#[test]
+fn proposer_can_create_after_pending_proposal_is_tallied() {
+    with_vote(|storage| {
+        let mut vote = Vote::new(storage.clone());
+        let current = 370u64;
+        vote.create_proposal(
+            PROPOSER,
+            UPDATE_TARGET_MODULE,
+            SCHEDULE_UPDATE_ACTION,
+            b"",
+            current,
+        )
+        .unwrap();
+
+        let deadline = current + crate::constants::VOTING_WINDOW_BLOCKS + 1;
+        vote.process_begin_block_test(deadline).unwrap();
+
+        let record = vote.proposals.get(U256::from(1)).unwrap().unwrap();
+        assert_ne!(record.proposal_status().unwrap(), ProposalStatus::Pending);
+
+        vote.create_proposal(
+            PROPOSER,
+            UPDATE_TARGET_MODULE,
+            SCHEDULE_UPDATE_ACTION,
+            b"",
+            deadline + 1,
+        )
+        .unwrap();
+    });
+}
+
+#[test]
 fn max_pending_proposals_is_enforced() {
     with_vote(|storage| {
         let mut vote = Vote::new(storage.clone());
         let current = 400u64;
         for i in 0..MAX_PENDING_PROPOSALS {
+            let proposer = match i {
+                0 => PROPOSER,
+                1 => VOTER_A,
+                2 => VOTER_B,
+                _ => {
+                    let addr = extra_validator_addr(i);
+                    register_active_validator(storage.clone(), addr, (i + 16) as u8);
+                    addr
+                }
+            };
             vote.create_proposal(
-                PROPOSER,
+                proposer,
                 UPDATE_TARGET_MODULE,
                 SCHEDULE_UPDATE_ACTION,
                 b"",
@@ -173,9 +280,15 @@ fn max_pending_proposals_is_enforced() {
             )
             .unwrap();
         }
+        let overflow_proposer = extra_validator_addr(MAX_PENDING_PROPOSALS);
+        register_active_validator(
+            storage.clone(),
+            overflow_proposer,
+            (MAX_PENDING_PROPOSALS + 16) as u8,
+        );
         let err = vote
             .create_proposal(
-                PROPOSER,
+                overflow_proposer,
                 UPDATE_TARGET_MODULE,
                 SCHEDULE_UPDATE_ACTION,
                 b"",

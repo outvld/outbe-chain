@@ -40,7 +40,7 @@ fn dispatch_update_call(storage: StorageHandle<'_>, call: IUpdate::IUpdateCalls)
     use IUpdate::IUpdateCalls::*;
     match call {
         getActiveVersion(_) => metadata::<IUpdate::getActiveVersionCall>(|| {
-            Ok(update.get_active_version()?.unwrap_or_default().into())
+            Ok(update.get_active_version()?.into())
         }),
         getActiveVersionHeight(_) => {
             metadata::<IUpdate::getActiveVersionHeightCall>(|| update.get_active_version_height())

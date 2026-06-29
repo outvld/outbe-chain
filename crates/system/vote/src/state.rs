@@ -268,6 +268,19 @@ impl<'storage> Vote<'storage> {
         self.pending_proposal_ids.read_all()
     }
 
+    pub fn pending_proposal_count_by_proposer(&self, proposer: Address) -> Result<u32> {
+        let mut count = 0u32;
+        for proposal_id in self.list_pending_proposal_ids()? {
+            let Some(record) = self.proposals.get(proposal_id)? else {
+                continue;
+            };
+            if record.proposer == proposer {
+                count = count.saturating_add(1);
+            }
+        }
+        Ok(count)
+    }
+
     pub fn write_proposal(
         &mut self,
         proposer: Address,

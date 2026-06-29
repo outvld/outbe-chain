@@ -59,9 +59,9 @@ impl Update<'_> {
         self.waiting_for_activation_proposal_ids.read_all()
     }
 
-    /// Reads the active protocol version.
-    pub fn get_active_version(&self) -> Result<Option<ProtocolVersion>> {
-        Ok(Some(self.active_version.read()?))
+    /// Reads the active protocol version (`0` = baseline / pre-upgrade chain).
+    pub fn get_active_version(&self) -> Result<ProtocolVersion> {
+        self.active_version.read()
     }
 
     /// Reads the activation height of the current active version.
@@ -69,13 +69,16 @@ impl Update<'_> {
         self.active_version_height.read()
     }
 
-    /// Reads the version recorded at `height`.
-    pub fn version_at_height(&self, height: u64) -> Result<Option<ProtocolVersion>> {
-        Ok(Some(self.version_history.read(&height)?))
+    /// Reads the version recorded at `height` (`0` when no upgrade was recorded there).
+    pub fn version_at_height(&self, height: u64) -> Result<ProtocolVersion> {
+        self.version_history.read(&height)
     }
 
     /// Writes the active protocol version and records it in `version_history`.
     pub fn set_active_version(&mut self, version: ProtocolVersion, height: u64) -> Result<()> {
+        if version.is_zero() {
+            return Err(UpdateError::InvalidVersion.into());
+        }
         self.active_version.write(version)?;
         self.active_version_height.write(height)?;
         self.version_history.write(&height, version)?;

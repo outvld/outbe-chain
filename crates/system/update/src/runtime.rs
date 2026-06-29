@@ -27,10 +27,9 @@ impl Update<'_> {
             return Err(UpdateError::InvalidVersion.into());
         }
 
-        if let Some(active) = self.get_active_version()? {
-            if version <= active {
-                return Err(UpdateError::DowngradeNotAllowed.into());
-            }
+        let active = self.get_active_version()?;
+        if version <= active {
+            return Err(UpdateError::DowngradeNotAllowed.into());
         }
 
         let min_activation = current_height.saturating_add(MIN_ACTIVATION_BUFFER);
@@ -82,6 +81,16 @@ impl Update<'_> {
             .read_scheduled_update(proposal_id)?
             .ok_or(UpdateError::ScheduledUpdateNotFound)?;
         if scheduled.status != ScheduledUpdateStatus::Pending {
+            return Ok(());
+        }
+        let active = self.get_active_version()?;
+        if scheduled.version <= active {
+            tracing::warn!(
+                proposal_id = %proposal_id,
+                scheduled_version = scheduled.version.raw(),
+                active_version = active.raw(),
+                "skipping stale scheduled update activation"
+            );
             return Ok(());
         }
 

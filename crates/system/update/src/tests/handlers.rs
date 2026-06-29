@@ -85,7 +85,7 @@ fn activation_without_handler_succeeds() {
                 .status,
             ScheduledUpdateStatus::Activated
         );
-        assert_eq!(get_active_version(storage).unwrap(), Some(V1_2));
+        assert_eq!(get_active_version(storage).unwrap(), V1_2);
     });
 }
 
@@ -113,7 +113,7 @@ fn registered_handler_is_called_before_activation() {
                 .status,
             ScheduledUpdateStatus::Activated
         );
-        assert_eq!(get_active_version(storage).unwrap(), Some(V1_2));
+        assert_eq!(get_active_version(storage).unwrap(), V1_2);
     });
 }
 
@@ -143,7 +143,7 @@ fn handler_failure_is_fatal_and_leaves_update_unactivated() {
                 .status,
             ScheduledUpdateStatus::Pending
         );
-        assert_ne!(get_active_version(storage).unwrap(), Some(V1_2));
+        assert_ne!(get_active_version(storage).unwrap(), V1_2);
     });
 }
 

@@ -335,7 +335,7 @@ where
     async fn get_update_active_version(&self) -> RpcResult<UpdateActiveVersionInfo> {
         self.with_latest_state(|storage| {
             let update = outbe_update::schema::Update::new(storage);
-            let version = update.get_active_version()?.unwrap_or_default();
+            let version = update.get_active_version()?;
             Ok((version, update.get_active_version_height()?).into())
         })
     }

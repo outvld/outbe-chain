@@ -6,7 +6,8 @@ use outbe_validatorset::contract::ValidatorSet;
 use outbe_validatorset::logic::status;
 
 use crate::constants::{
-    MAX_PENDING_PROPOSALS, QUORUM_DENOMINATOR, QUORUM_NUMERATOR, VOTING_WINDOW_BLOCKS,
+    MAX_PENDING_PROPOSALS, MAX_PENDING_PROPOSALS_PER_VALIDATOR, QUORUM_DENOMINATOR,
+    QUORUM_NUMERATOR, VOTING_WINDOW_BLOCKS,
 };
 use crate::errors::VoteError;
 use crate::precompile::IVote;
@@ -48,6 +49,11 @@ impl Vote<'_> {
         let pending_len = self.pending_proposal_ids.len()? as u32;
         if pending_len >= MAX_PENDING_PROPOSALS {
             return Err(VoteError::TooManyPending.into());
+        }
+
+        let proposer_pending = self.pending_proposal_count_by_proposer(proposer)?;
+        if proposer_pending >= MAX_PENDING_PROPOSALS_PER_VALIDATOR {
+            return Err(VoteError::TooManyPendingByValidator.into());
         }
 
         let voting_deadline = current_height.saturating_add(VOTING_WINDOW_BLOCKS);

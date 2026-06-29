@@ -45,8 +45,8 @@ fn active_version_helpers_roundtrip() {
         let mut update = Update::new(storage.clone());
         update.set_active_version(V1_5, 500).unwrap();
 
-        assert_eq!(get_active_version(storage.clone()).unwrap(), Some(V1_5));
-        assert_eq!(version_at_height(storage.clone(), 500).unwrap(), Some(V1_5));
+        assert_eq!(get_active_version(storage.clone()).unwrap(), V1_5);
+        assert_eq!(version_at_height(storage.clone(), 500).unwrap(), V1_5);
         assert!(is_version_active_eq(storage.clone(), V1_5).unwrap());
         assert!(is_version_active_gte(storage.clone(), V1_2).unwrap());
         assert!(!is_version_active_eq(storage.clone(), V1_3).unwrap());

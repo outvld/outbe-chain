@@ -23,8 +23,8 @@ fn lifecycle_activates_scheduled_update() {
             .list_waiting_for_activation_proposal_ids()
             .unwrap()
             .is_empty());
-        assert_eq!(get_active_version(storage.clone()).unwrap(), Some(V1_2));
-        assert_eq!(version_at_height(storage, activation).unwrap(), Some(V1_2));
+        assert_eq!(get_active_version(storage.clone()).unwrap(), V1_2);
+        assert_eq!(version_at_height(storage, activation).unwrap(), V1_2);
     });
 }
 
@@ -95,12 +95,12 @@ fn activate_scheduled_update_skips_stale_lower_version() {
         .unwrap();
 
         update.process_begin_block_test(activation_early).unwrap();
-        assert_eq!(get_active_version(storage.clone()).unwrap(), Some(V1_3));
+        assert_eq!(get_active_version(storage.clone()).unwrap(), V1_3);
 
         update.process_begin_block_test(activation_late).unwrap();
         assert_eq!(
             get_active_version(storage.clone()).unwrap(),
-            Some(V1_3),
+            V1_3,
             "activating an older scheduled update must not downgrade active version"
         );
         let stale = update
@@ -142,12 +142,12 @@ fn multiple_due_updates_cannot_reduce_active_version() {
         .unwrap();
 
         update.process_begin_block_test(activation).unwrap();
-        assert_eq!(get_active_version(storage.clone()).unwrap(), Some(V1_3));
+        assert_eq!(get_active_version(storage.clone()).unwrap(), V1_3);
 
         update.process_begin_block_test(activation + 1).unwrap();
         assert_eq!(
             get_active_version(storage.clone()).unwrap(),
-            Some(V1_3),
+            V1_3,
             "later activation of lower version must not reduce active version"
         );
     });

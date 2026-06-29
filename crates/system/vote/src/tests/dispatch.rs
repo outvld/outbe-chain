@@ -69,7 +69,7 @@ fn approved_vote_proposal_schedules_update_and_activates() {
             .process_begin_block_with_handlers(&ctx, &EMPTY_UPGRADE_HANDLER_REGISTRY)
             .unwrap();
 
-        assert_eq!(update.get_active_version().unwrap(), Some(V1_2));
+        assert_eq!(update.get_active_version().unwrap(), V1_2);
         assert_eq!(update.get_active_version_height().unwrap(), activation);
     });
 }
@@ -132,7 +132,7 @@ fn unknown_target_or_action_is_rejected_without_update_state_change() {
 
         let unknown_action = vote
             .create_proposal(
-                PROPOSER,
+                VOTER_A,
                 UPDATE_TARGET_MODULE,
                 UNKNOWN_ACTION,
                 &payload,
@@ -176,7 +176,7 @@ fn unknown_target_or_action_is_rejected_without_update_state_change() {
             .is_none());
         assert_eq!(
             update.get_active_version().unwrap(),
-            Some(ProtocolVersion::ZERO)
+            ProtocolVersion::ZERO
         );
     });
 }

@@ -15,6 +15,8 @@ pub enum VoteError {
     AlreadyVoted,
     #[error("too many pending proposals")]
     TooManyPending,
+    #[error("validator has too many pending proposals")]
+    TooManyPendingByValidator,
     #[error("invalid proposal status")]
     InvalidProposalStatus,
     #[error("invalid vote kind")]
