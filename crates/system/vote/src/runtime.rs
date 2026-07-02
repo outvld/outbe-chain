@@ -15,6 +15,20 @@ use crate::schema::Vote;
 use crate::state::{active_validator_addresses, calculate_vote_tally, ProposalStatus, VoteKind};
 use crate::targets;
 
+const LOCALNET_CHAIN_ID: u64 = 54_322_345;
+
+fn voting_window_blocks(chain_id: u64) -> u64 {
+    if chain_id != LOCALNET_CHAIN_ID {
+        return VOTING_WINDOW_BLOCKS;
+    }
+
+    std::env::var("OUTBE_TEST_VOTING_WINDOW_BLOCKS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(VOTING_WINDOW_BLOCKS)
+}
+
 /// Returns `Ok(())` when `caller` is a registered validator with `status == ACTIVE`.
 pub fn ensure_active_validator(storage: StorageHandle<'_>, caller: Address) -> Result<()> {
     let vs = ValidatorSet::new(storage);
@@ -55,6 +69,7 @@ impl Vote<'_> {
         payload: &str,
         current_height: u64,
     ) -> Result<U256> {
+        let chain_id = self.storage.chain_id()?;
         ensure_active_validator(self.storage.clone(), proposer)?;
 
         let pending_len = self.pending_proposal_ids.len()? as u32;
@@ -69,7 +84,7 @@ impl Vote<'_> {
 
         targets::validate_target_payload(target_module, payload, current_height)?;
 
-        let voting_deadline = current_height.saturating_add(VOTING_WINDOW_BLOCKS);
+        let voting_deadline = current_height.saturating_add(voting_window_blocks(chain_id));
         let proposal_id = self.write_proposal(
             proposer,
             target_module,

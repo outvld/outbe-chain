@@ -24,6 +24,7 @@ RETH_BOOTNODES="${RETH_BOOTNODES:-}"
 RETH_BOOTNODES_FILE="${RETH_BOOTNODES_FILE:-$OUTPUT_DIR/reth-bootnodes.txt}"
 OUTBE_TEST_DROP_NEW_PAYLOAD_VALIDATOR="${OUTBE_TEST_DROP_NEW_PAYLOAD_VALIDATOR:-}"
 OUTBE_TEST_DROP_NEW_PAYLOAD_HEIGHT="${OUTBE_TEST_DROP_NEW_PAYLOAD_HEIGHT:-}"
+OUTBE_TEST_VOTING_WINDOW_BLOCKS="${OUTBE_TEST_VOTING_WINDOW_BLOCKS:-}"
 
 # --- Helpers ---
 
@@ -345,6 +346,10 @@ do_start() {
         # has overflowed its stack`). Release builds optimize the frame away and
         # are unaffected. 16 MiB is ample headroom; operators may override.
         local -a env_args=(RUST_MIN_STACK="${RUST_MIN_STACK:-16777216}")
+        if [ -n "$OUTBE_TEST_VOTING_WINDOW_BLOCKS" ]; then
+            env_args+=(OUTBE_TEST_VOTING_WINDOW_BLOCKS="$OUTBE_TEST_VOTING_WINDOW_BLOCKS")
+            echo "  Validator $i test hook: voting window $OUTBE_TEST_VOTING_WINDOW_BLOCKS blocks"
+        fi
         if [ -n "$OUTBE_TEST_DROP_NEW_PAYLOAD_VALIDATOR" ] \
             && [ -n "$OUTBE_TEST_DROP_NEW_PAYLOAD_HEIGHT" ] \
             && [ "$OUTBE_TEST_DROP_NEW_PAYLOAD_VALIDATOR" = "$i" ]; then
