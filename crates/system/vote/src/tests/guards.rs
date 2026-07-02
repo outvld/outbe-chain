@@ -7,11 +7,11 @@ use crate::api::get_proposal;
 use crate::schema::ProposalStatus;
 use crate::schema::Vote;
 use crate::state::{active_validator_addresses, calculate_vote_tally, VoteTally};
-use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
+use outbe_primitives::addresses::UPDATE_ADDRESS;
 
 use super::{
-    register_active_validator, register_pending_validator, with_vote, VoteTestExt, PENDING_VOTER,
-    PROPOSER, VOTER_A, VOTER_B,
+    empty_update_payload, register_active_validator, register_pending_validator, with_vote,
+    VoteTestExt, PENDING_VOTER, PROPOSER, VOTER_A, VOTER_B,
 };
 
 const OUTSIDER: Address = address!("0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead");
@@ -27,13 +27,13 @@ fn extra_validator_addr(index: u32) -> Address {
 fn create_proposal_rejects_non_validator() {
     with_vote(|storage| {
         let mut vote = Vote::new(storage.clone());
+        let current = 10u64;
         let err = vote
             .create_proposal(
                 OUTSIDER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
-                10,
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
+                current,
             )
             .unwrap_err();
         assert!(matches!(
@@ -47,13 +47,13 @@ fn create_proposal_rejects_non_validator() {
 fn cast_vote_rejects_non_validator() {
     with_vote(|storage| {
         let mut vote = Vote::new(storage.clone());
+        let current = 10u64;
         let proposal_id = vote
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
-                10,
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
+                current,
             )
             .unwrap();
         let err = vote
@@ -75,9 +75,8 @@ fn pending_validator_can_cast_vote() {
         let proposal_id = vote
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -97,13 +96,13 @@ fn pending_validator_cannot_create_proposal() {
     with_vote(|storage| {
         register_pending_validator(storage.clone(), PENDING_VOTER, 4);
         let mut vote = Vote::new(storage.clone());
+        let current = 10u64;
         let err = vote
             .create_proposal(
                 PENDING_VOTER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
-                10,
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
+                current,
             )
             .unwrap_err();
         assert!(matches!(
@@ -122,9 +121,8 @@ fn pending_vote_is_stored_but_excluded_from_active_tally() {
         let proposal_id = vote
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -153,9 +151,8 @@ fn cast_vote_rejects_after_deadline() {
         let proposal_id = vote
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -179,9 +176,8 @@ fn cast_vote_rejects_when_not_pending() {
         let proposal_id = vote
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -212,9 +208,8 @@ fn begin_block_does_not_tally_at_exact_deadline() {
         let proposal_id = vote
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -256,9 +251,8 @@ fn max_pending_proposals_per_validator_is_enforced() {
         let current = 350u64;
         vote.create_proposal(
             PROPOSER,
-            UPDATE_TARGET_MODULE,
-            SCHEDULE_UPDATE_ACTION,
-            b"",
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
             current,
         )
         .unwrap();
@@ -266,9 +260,8 @@ fn max_pending_proposals_per_validator_is_enforced() {
         let err = vote
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current + 1),
                 current + 1,
             )
             .unwrap_err();
@@ -290,18 +283,16 @@ fn other_validator_can_create_while_proposer_has_pending() {
         let current = 360u64;
         vote.create_proposal(
             PROPOSER,
-            UPDATE_TARGET_MODULE,
-            SCHEDULE_UPDATE_ACTION,
-            b"",
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
             current,
         )
         .unwrap();
 
         vote.create_proposal(
             VOTER_A,
-            UPDATE_TARGET_MODULE,
-            SCHEDULE_UPDATE_ACTION,
-            b"",
+            UPDATE_ADDRESS,
+            &empty_update_payload(current + 1),
             current + 1,
         )
         .unwrap();
@@ -315,9 +306,8 @@ fn proposer_can_create_after_pending_proposal_is_tallied() {
         let current = 370u64;
         vote.create_proposal(
             PROPOSER,
-            UPDATE_TARGET_MODULE,
-            SCHEDULE_UPDATE_ACTION,
-            b"",
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
             current,
         )
         .unwrap();
@@ -330,9 +320,8 @@ fn proposer_can_create_after_pending_proposal_is_tallied() {
 
         vote.create_proposal(
             PROPOSER,
-            UPDATE_TARGET_MODULE,
-            SCHEDULE_UPDATE_ACTION,
-            b"",
+            UPDATE_ADDRESS,
+            &empty_update_payload(deadline + 1),
             deadline + 1,
         )
         .unwrap();
@@ -357,9 +346,8 @@ fn max_pending_proposals_is_enforced() {
             };
             vote.create_proposal(
                 proposer,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current + i as u64),
                 current + i as u64,
             )
             .unwrap();
@@ -373,9 +361,8 @@ fn max_pending_proposals_is_enforced() {
         let err = vote
             .create_proposal(
                 overflow_proposer,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current + MAX_PENDING_PROPOSALS as u64),
                 current + MAX_PENDING_PROPOSALS as u64,
             )
             .unwrap_err();

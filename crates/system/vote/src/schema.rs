@@ -54,22 +54,19 @@ pub struct ProposalRecord {
     pub proposer: Address,
 
     #[attribute(order = 1)]
-    pub target_module: B256,
+    pub target_module: Address,
 
     #[attribute(order = 2)]
-    pub action: B256,
+    pub payload: String,
 
     #[attribute(order = 3)]
-    pub payload: Vec<u8>,
-
-    #[attribute(order = 4)]
     pub created_height: u64,
 
-    #[attribute(order = 5)]
+    #[attribute(order = 4)]
     pub voting_deadline_height: u64,
 
     // TODO: Extend storage to support enum fields?
-    #[attribute(order = 6)]
+    #[attribute(order = 5)]
     pub status: u8, // ProposalStatus
 }
 
@@ -124,7 +121,7 @@ impl Storable for VoteRecord {
 /// Storage slots:
 ///   0:  proposal_count
 ///   1:  pending_proposal_ids
-///   2:  proposals: mapping(proposal_id => ProposalRecord) (`ProposalRecord`, 7 slots)
+///   2:  proposals: mapping(proposal_id => ProposalRecord) (`ProposalRecord`, 6 slots)
 ///   3:  votes_map: mapping(voteKey => 1-based proposal_voters index)
 ///   4:  proposal_voters: mapping(proposalId => VoteRecord[])
 #[storage_schema]

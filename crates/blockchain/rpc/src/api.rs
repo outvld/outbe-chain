@@ -198,7 +198,7 @@ impl From<outbe_update::ScheduledUpdateInfo> for UpdateScheduledUpdateInfo {
             major: outbe_update::state::protocol_version_major(scheduled.version),
             minor: outbe_update::state::protocol_version_minor(scheduled.version),
             activation_height: scheduled.activation_height,
-            info: hex::encode(&scheduled.info),
+            info: scheduled.info,
             status: scheduled.status.into(),
         }
     }

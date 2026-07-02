@@ -70,7 +70,7 @@ fn activation_without_handler_succeeds() {
         let current = 100u64;
         let activation = min_activation(current);
         let proposal_id = U256::from(1);
-        schedule_update(&mut update, proposal_id, V1_2, activation, b"", current).unwrap();
+        schedule_update(&mut update, proposal_id, V1_2, activation, "", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         update
@@ -97,7 +97,7 @@ fn registered_handler_is_called_before_activation() {
         let current = 100u64;
         let activation = min_activation(current);
         let proposal_id = U256::from(1);
-        schedule_update(&mut update, proposal_id, V1_2, activation, b"", current).unwrap();
+        schedule_update(&mut update, proposal_id, V1_2, activation, "", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         update
@@ -124,7 +124,7 @@ fn handler_failure_is_fatal_and_leaves_update_unactivated() {
         let current = 100u64;
         let activation = min_activation(current);
         let proposal_id = U256::from(1);
-        schedule_update(&mut update, proposal_id, V1_2, activation, b"", current).unwrap();
+        schedule_update(&mut update, proposal_id, V1_2, activation, "", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         let err = update
@@ -155,7 +155,7 @@ fn activated_update_does_not_reinvoke_handler_on_replay() {
         let current = 100u64;
         let activation = min_activation(current);
         let proposal_id = U256::from(1);
-        schedule_update(&mut update, proposal_id, V1_2, activation, b"", current).unwrap();
+        schedule_update(&mut update, proposal_id, V1_2, activation, "", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         update

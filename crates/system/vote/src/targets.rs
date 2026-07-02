@@ -1,40 +1,100 @@
 //! Compile-time registry of vote target-module handlers.
 
-use alloy_primitives::{B256, U256};
+use alloy_primitives::{Address, U256};
+use outbe_primitives::addresses::UPDATE_ADDRESS;
 use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::Result;
+use outbe_update::payload::validate_schedule_update_json;
 use outbe_update::schema::Update;
+use serde_json::Value;
 
 use crate::errors::VoteError;
-use crate::schema::ProposalRecord;
+use crate::schema::{ProposalRecord, ProposalStatus};
 
-/// Target module id for protocol update scheduling (`keccak256("outbe.module.update")`).
-pub const UPDATE_TARGET_MODULE: B256 =
-    alloy_primitives::b256!("408215974421bccd1eba2bf03d2cac57c948ef02be50d99e89e7ff15ea7775c2");
+/// Registered update precompile address used as vote target module.
+pub use outbe_primitives::addresses::UPDATE_ADDRESS as UPDATE_TARGET;
 
-/// Action id for scheduling a protocol update (`keccak256("outbe.action.schedule_update")`).
-pub const SCHEDULE_UPDATE_ACTION: B256 =
-    alloy_primitives::b256!("fcd8b0a2d4d2249dc5834ceb5c5badf181b783e542f4fe68eacdfeb427b145d2");
+/// Target-module handler for approved vote proposals.
+pub trait VoteTarget {
+    /// Fail-fast validation used during proposal creation.
+    fn validate(&self, payload: &Value, current_height: u64) -> Result<()>;
 
-/// TODO: change type of target module -> address?
-/// TODO: move dispatch to blockchain/evm near precompile declaration (like update crate?)
+    /// Applies side effects when a proposal is approved.
+    fn handle_approved(
+        &self,
+        ctx: &BlockRuntimeContext,
+        proposal_id: U256,
+        payload: &Value,
+    ) -> Result<()>;
 
-/// Dispatches an approved proposal to its registered target-module handler.
-pub fn dispatch_approved_proposal(
+    /// Dispatches terminal proposal outcomes to the target module.
+    /// Only result of tally is possible (Expired or Approved).
+    fn handle_tally(
+        &self,
+        ctx: &BlockRuntimeContext,
+        proposal_id: U256,
+        payload: &Value,
+        status: ProposalStatus,
+    ) -> Result<()> {
+        match status {
+            ProposalStatus::Approved => self.handle_approved(ctx, proposal_id, payload),
+            ProposalStatus::Rejected | ProposalStatus::Expired | ProposalStatus::Pending => Ok(()),
+        }
+    }
+}
+
+struct UpdateVoteTarget;
+
+impl VoteTarget for UpdateVoteTarget {
+    fn validate(&self, payload: &Value, current_height: u64) -> Result<()> {
+        validate_schedule_update_json(payload, current_height).map_err(Into::into)
+    }
+
+    fn handle_approved(
+        &self,
+        ctx: &BlockRuntimeContext,
+        proposal_id: U256,
+        payload: &Value,
+    ) -> Result<()> {
+        Update::new(ctx.storage.clone()).schedule_update_from_propose(
+            proposal_id,
+            payload,
+            ctx.block.block_number,
+        )
+    }
+}
+
+fn lookup_target(target_module: Address) -> Result<&'static dyn VoteTarget> {
+    if target_module == UPDATE_ADDRESS {
+        Ok(&UpdateVoteTarget)
+    } else {
+        Err(VoteError::UnknownTargetModule.into())
+    }
+}
+
+fn parse_payload_json(payload: &str) -> Result<Value> {
+    serde_json::from_str(payload).map_err(|_| VoteError::InvalidPayload.into())
+}
+
+/// Validates a target payload during proposal creation.
+pub fn validate_target_payload(
+    target_module: Address,
+    payload: &str,
+    current_height: u64,
+) -> Result<()> {
+    let target = lookup_target(target_module)?;
+    let json = parse_payload_json(payload)?;
+    target.validate(&json, current_height)
+}
+
+/// Dispatches a terminal proposal outcome to its target module.
+pub fn handle_target_tally(
     ctx: &BlockRuntimeContext,
     proposal_id: U256,
     proposal: &ProposalRecord,
+    status: ProposalStatus,
 ) -> Result<()> {
-    if proposal.target_module != UPDATE_TARGET_MODULE {
-        return Err(VoteError::UnknownTargetModule.into());
-    }
-    if proposal.action != SCHEDULE_UPDATE_ACTION {
-        return Err(VoteError::UnknownAction.into());
-    }
-
-    Update::new(ctx.storage.clone()).schedule_update_from_vote(
-        proposal_id,
-        &proposal.payload,
-        ctx.block.block_number,
-    )
+    let target = lookup_target(proposal.target_module)?;
+    let json = parse_payload_json(proposal.payload.as_str())?;
+    target.handle_tally(ctx, proposal_id, &json, status)
 }

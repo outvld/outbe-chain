@@ -5751,7 +5751,8 @@ mod tests {
     fn pre_exec_hooks_emit_whitelisted_update_activation_event() {
         use alloy_sol_types::SolEvent;
         use outbe_update::precompile::IUpdate;
-        use outbe_update::{encode_protocol_version, encode_scheduled_update_payload};
+        use outbe_update::{encode_protocol_version, payload::encode_schedule_update_json};
+        use serde_json::Value;
 
         let proposer = test_evm_signer().address();
         const ACTIVATION_BLOCK: u64 = 101;
@@ -5760,10 +5761,15 @@ mod tests {
         let mut state =
             state_with_active_validators_seeded(&[(proposer, dummy_pubkey(0xA2))], |storage| {
                 let proposal_id = U256::from(1);
-                let payload = encode_scheduled_update_payload(v1_2, ACTIVATION_BLOCK, b"");
+                let payload: Value = serde_json::from_str(&encode_schedule_update_json(
+                    v1_2,
+                    ACTIVATION_BLOCK,
+                    "",
+                ))
+                .expect("schedule update JSON should parse");
                 let mut update = outbe_update::schema::Update::new(storage.clone());
                 update
-                    .schedule_update_from_vote(proposal_id, &payload, 1)
+                    .schedule_update_from_propose(proposal_id, &payload, 1)
                     .expect("schedule update");
             });
 
@@ -5793,7 +5799,8 @@ mod tests {
     fn hook_events_receipt_carries_whitelisted_update_activation_log() {
         use alloy_sol_types::SolEvent;
         use outbe_update::precompile::IUpdate;
-        use outbe_update::{encode_protocol_version, encode_scheduled_update_payload};
+        use outbe_update::{encode_protocol_version, payload::encode_schedule_update_json};
+        use serde_json::Value;
 
         let proposer = test_evm_signer().address();
         const ACTIVATION_BLOCK: u64 = 101;
@@ -5802,10 +5809,15 @@ mod tests {
         let mut state =
             state_with_active_validators_seeded(&[(proposer, dummy_pubkey(0xA2))], |storage| {
                 let proposal_id = U256::from(1);
-                let payload = encode_scheduled_update_payload(v1_2, ACTIVATION_BLOCK, b"");
+                let payload: Value = serde_json::from_str(&encode_schedule_update_json(
+                    v1_2,
+                    ACTIVATION_BLOCK,
+                    "",
+                ))
+                .expect("schedule update JSON should parse");
                 let mut update = outbe_update::schema::Update::new(storage.clone());
                 update
-                    .schedule_update_from_vote(proposal_id, &payload, 1)
+                    .schedule_update_from_propose(proposal_id, &payload, 1)
                     .expect("schedule update");
             });
 

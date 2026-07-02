@@ -6898,6 +6898,7 @@ dependencies = [
  "outbe-validatorset",
  "outbe-vaultprovider",
  "outbe-vote",
+ "serde_json",
 ]
 
 [[package]]
@@ -7620,6 +7621,8 @@ dependencies = [
  "outbe-macros",
  "outbe-primitives",
  "outbe-validatorset",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -7667,6 +7670,7 @@ dependencies = [
  "outbe-primitives",
  "outbe-update",
  "outbe-validatorset",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
 ]

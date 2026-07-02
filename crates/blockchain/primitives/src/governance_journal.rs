@@ -52,7 +52,6 @@ pub struct ProposalRef {
     pub proposal_id: String,
     pub proposer: String,
     pub target_module: String,
-    pub action: String,
 }
 
 /// Yes/no vote counters at a tally point.
@@ -321,8 +320,7 @@ mod tests {
         ProposalRef {
             proposal_id: "1".into(),
             proposer: "0x2cf6fbd0".into(),
-            target_module: "0x4082".into(),
-            action: "0xfcd8".into(),
+            target_module: "0x000000000000000000000000000000000000ee0b".into(),
         }
     }
 

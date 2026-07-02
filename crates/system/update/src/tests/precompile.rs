@@ -26,7 +26,7 @@ fn dispatch_get_scheduled_update() {
             proposal_id,
             V1_2,
             min_activation(current),
-            b"notes",
+            "notes",
             current,
         )
         .unwrap();
@@ -88,7 +88,7 @@ fn dispatch_active_version_and_waiting_list() {
             U256::from(1),
             V3_1,
             min_activation(current),
-            b"",
+            "",
             current,
         )
         .unwrap();

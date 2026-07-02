@@ -1,6 +1,6 @@
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, U256};
 use outbe_primitives::block::BlockRuntimeContext;
-use outbe_primitives::error::{PrecompileError, Result};
+use outbe_primitives::error::Result;
 use outbe_primitives::storage::StorageHandle;
 use outbe_validatorset::contract::ValidatorSet;
 use outbe_validatorset::logic::status;
@@ -51,9 +51,8 @@ impl Vote<'_> {
     pub fn create_proposal(
         &mut self,
         proposer: Address,
-        target_module: B256,
-        action: B256,
-        payload: &[u8],
+        target_module: Address,
+        payload: &str,
         current_height: u64,
     ) -> Result<U256> {
         ensure_active_validator(self.storage.clone(), proposer)?;
@@ -68,11 +67,12 @@ impl Vote<'_> {
             return Err(VoteError::TooManyPendingByValidator.into());
         }
 
+        targets::validate_target_payload(target_module, payload, current_height)?;
+
         let voting_deadline = current_height.saturating_add(VOTING_WINDOW_BLOCKS);
         let proposal_id = self.write_proposal(
             proposer,
             target_module,
-            action,
             payload,
             current_height,
             voting_deadline,
@@ -83,7 +83,6 @@ impl Vote<'_> {
             proposal_id,
             proposer,
             target_module,
-            action,
             payload,
             voting_deadline,
         )?;
@@ -126,8 +125,8 @@ impl Vote<'_> {
 
     /// Tally proposals whose voting windows have closed.
     ///
-    /// Transitions `Pending` -> `Approved` | `Rejected` | `Expired`. On `Approved`,
-    /// the registered target-module handler is invoked in the same pass (not wired yet).
+    /// Transitions `Pending` -> `Approved` | `Rejected` | `Expired`. Dispatches the
+    /// terminal outcome to the registered target-module handler in the same pass.
     pub fn process_begin_block(&mut self, ctx: &BlockRuntimeContext) -> Result<()> {
         let block_number = ctx.block.block_number;
         let pending_ids = self.list_pending_proposal_ids()?;
@@ -159,21 +158,28 @@ impl Vote<'_> {
         let active_count = vs.active_validator_count()?;
         let block_number = ctx.block.block_number;
 
-        let outcome = if quorum_reached(tally.yes, active_count) {
-            match targets::dispatch_approved_proposal(ctx, proposal_id, &proposal) {
-                Ok(()) => {
-                    self.set_proposal_status(proposal_id, ProposalStatus::Approved)?;
-                    ProposalFinalization::Approved
-                }
-                Err(PrecompileError::Revert(reason)) => {
-                    self.set_proposal_status(proposal_id, ProposalStatus::Rejected)?;
-                    ProposalFinalization::Rejected { reason }
-                }
-                Err(err) => return Err(err),
-            }
+        let status = if quorum_reached(tally.yes, active_count) {
+            ProposalStatus::Approved
         } else {
-            self.set_proposal_status(proposal_id, ProposalStatus::Expired)?;
-            ProposalFinalization::Expired
+            ProposalStatus::Expired
+        };
+
+        let outcome = match targets::handle_target_tally(ctx, proposal_id, &proposal, status) {
+            Ok(()) => {
+                self.set_proposal_status(proposal_id, status)?;
+                match status {
+                    ProposalStatus::Approved => ProposalFinalization::Approved,
+                    ProposalStatus::Expired => ProposalFinalization::Expired,
+                    ProposalStatus::Pending | ProposalStatus::Rejected => unreachable!(),
+                }
+            }
+            Err(e) if status == ProposalStatus::Approved => {
+                self.set_proposal_status(proposal_id, ProposalStatus::Rejected)?;
+                ProposalFinalization::Rejected {
+                    reason: e.to_string(),
+                }
+            }
+            Err(err) => return Err(err),
         };
 
         self.notify_proposal_finalized(block_number, &proposal, &tally, active_count, outcome)

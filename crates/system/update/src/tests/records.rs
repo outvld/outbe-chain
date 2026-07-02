@@ -38,12 +38,12 @@ fn scheduled_update_record_dynamic_fields_roundtrip() {
             proposal_id,
             version: V9_8,
             activation_height: 200,
-            info: b"dynamic-bytes-payload".to_vec(),
+            info: "dynamic-string-payload".to_string(),
             status: ScheduledUpdateStatus::Scheduled.to_u8(),
         };
         update.scheduled_updates.create(&record).unwrap();
         let loaded = update.scheduled_updates.get(proposal_id).unwrap().unwrap();
         assert_eq!(loaded.version, V9_8);
-        assert_eq!(loaded.info, b"dynamic-bytes-payload");
+        assert_eq!(loaded.info, "dynamic-string-payload");
     });
 }

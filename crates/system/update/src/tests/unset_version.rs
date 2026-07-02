@@ -1,6 +1,8 @@
 use alloy_primitives::U256;
+use serde_json::Value;
 
 use crate::api::{get_active_version, is_version_active_eq, version_at_height};
+use crate::payload::encode_schedule_update_json;
 use crate::schema::Update;
 use crate::ProtocolVersion;
 
@@ -38,9 +40,11 @@ fn is_version_active_zero_on_fresh_chain() {
 fn schedule_update_rejects_zero_version() {
     with_update(|storage| {
         let mut update = Update::new(storage.clone());
-        let payload = crate::encode_scheduled_update_payload(ProtocolVersion::ZERO, 1000, b"");
+        let payload: Value =
+            serde_json::from_str(&encode_schedule_update_json(ProtocolVersion::ZERO, 1000, ""))
+                .unwrap();
         let err = update
-            .schedule_update_from_vote(U256::from(1), &payload, 100)
+            .schedule_update_from_propose(U256::from(1), &payload, 100)
             .unwrap_err();
         assert!(matches!(
             err,

@@ -70,7 +70,7 @@ fn scheduled_update_return(scheduled: &ScheduledUpdateInfo) -> IUpdate::Schedule
         proposalId: scheduled.proposal_id,
         version: scheduled.version.into(),
         activationHeight: scheduled.activation_height,
-        info: scheduled.info.clone().into(),
+        info: scheduled.info.as_bytes().to_vec().into(),
         status,
     }
 }

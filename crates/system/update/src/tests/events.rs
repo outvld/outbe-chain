@@ -21,7 +21,7 @@ fn schedule_emits_scheduled_update_created_event() {
             U256::from(1),
             V1_2,
             min_activation(current),
-            b"notes",
+            "notes",
             current,
         )
         .unwrap();
@@ -39,7 +39,7 @@ fn lifecycle_emits_upgrade_activated_event() {
         let mut update = Update::new(storage.clone());
         let current = 100u64;
         let activation = min_activation(current);
-        schedule_update(&mut update, U256::from(1), V1_2, activation, b"", current).unwrap();
+        schedule_update(&mut update, U256::from(1), V1_2, activation, "", current).unwrap();
         update.process_begin_block_test(activation).unwrap();
     });
 
@@ -61,7 +61,7 @@ fn lifecycle_emits_upgrade_canceled_event() {
             U256::from(1),
             V1_3,
             activation_early,
-            b"",
+            "",
             current,
         )
         .unwrap();
@@ -70,7 +70,7 @@ fn lifecycle_emits_upgrade_canceled_event() {
             U256::from(2),
             V1_2,
             activation_late,
-            b"",
+            "",
             current,
         )
         .unwrap();

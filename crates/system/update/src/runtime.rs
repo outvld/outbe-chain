@@ -1,4 +1,5 @@
 use alloy_primitives::U256;
+use serde_json::Value;
 
 use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::{PrecompileError, Result};
@@ -6,23 +7,41 @@ use outbe_primitives::error::{PrecompileError, Result};
 use crate::constants::{MAX_WAITING_FOR_ACTIVATION_UPDATES, MIN_ACTIVATION_BUFFER};
 use crate::errors::UpdateError;
 use crate::handlers::UpgradeHandlerRegistry;
-use crate::payload::decode_scheduled_update_payload;
+use crate::payload::decode_schedule_update_json;
 use crate::precompile::IUpdate;
 use crate::schema::{ScheduledUpdateStatus, Update};
+use crate::ProtocolVersion;
 
 impl Update<'_> {
-    /// Schedules an update from an approved vote payload.
-    pub fn schedule_update_from_vote(
+    /// Schedules an update from an approved vote proposal payload.
+    pub fn schedule_update_from_propose(
         &mut self,
         proposal_id: U256,
-        payload: &[u8],
+        payload: &Value,
+        current_height: u64,
+    ) -> Result<()> {
+        let (version, activation_height, info) = decode_schedule_update_json(payload)?;
+        self.schedule_update_from_propose_fields(
+            proposal_id,
+            version,
+            activation_height,
+            &info,
+            current_height,
+        )
+    }
+
+    fn schedule_update_from_propose_fields(
+        &mut self,
+        proposal_id: U256,
+        version: ProtocolVersion,
+        activation_height: u64,
+        info: &str,
         current_height: u64,
     ) -> Result<()> {
         if self.read_scheduled_update(proposal_id)?.is_some() {
             return Err(UpdateError::ScheduledUpdateAlreadyExists.into());
         }
 
-        let (version, activation_height, info) = decode_scheduled_update_payload(payload)?;
         if version.is_zero() {
             return Err(UpdateError::InvalidVersion.into());
         }
@@ -46,12 +65,12 @@ impl Update<'_> {
             return Err(UpdateError::TooManyWaitingForActivation.into());
         }
 
-        self.write_scheduled_update(proposal_id, version, activation_height, &info)?;
+        self.write_scheduled_update(proposal_id, version, activation_height, info)?;
         self.emit(IUpdate::ScheduledUpdateCreated {
             proposalId: proposal_id,
             version: version.raw(),
             activationHeight: activation_height,
-            info: info.into(),
+            info: info.as_bytes().to_vec().into(),
         })
     }
 
@@ -130,7 +149,10 @@ impl Update<'_> {
         })
     }
 
-    fn cancel_outdated_waiting_updates(&mut self, active_version: crate::ProtocolVersion) -> Result<()> {
+    fn cancel_outdated_waiting_updates(
+        &mut self,
+        active_version: crate::ProtocolVersion,
+    ) -> Result<()> {
         let waiting_ids = self.list_waiting_for_activation_proposal_ids()?;
         for proposal_id in waiting_ids {
             let Some(scheduled) = self.read_scheduled_update(proposal_id)? else {

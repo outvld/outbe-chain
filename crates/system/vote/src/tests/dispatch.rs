@@ -1,11 +1,11 @@
-use alloy_primitives::B256;
+use alloy_primitives::address;
 use alloy_sol_types::SolEvent;
 
+use outbe_primitives::addresses::UPDATE_ADDRESS;
 use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
-use outbe_update::constants::MIN_ACTIVATION_BUFFER;
+use outbe_primitives::error::PrecompileError;
 use outbe_update::encode_protocol_version;
 use outbe_update::handlers::EMPTY_UPGRADE_HANDLER_REGISTRY;
-use outbe_update::payload::encode_scheduled_update_payload;
 use outbe_update::precompile::IUpdate;
 use outbe_update::schema::Update;
 use outbe_update::ProtocolVersion;
@@ -13,17 +13,15 @@ use outbe_update::ProtocolVersion;
 use crate::constants::VOTING_WINDOW_BLOCKS;
 use crate::schema::ProposalStatus;
 use crate::schema::Vote;
-use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
-use super::{with_vote, VoteTestExt, PROPOSER, VOTER_A, VOTER_B};
+use super::{
+    empty_update_payload, min_activation_at, update_json_payload, with_vote, VoteTestExt, PROPOSER,
+    VOTER_A, VOTER_B,
+};
 
 const V1_2: ProtocolVersion = encode_protocol_version(1, 2);
-const UNKNOWN_MODULE: B256 = B256::repeat_byte(0xAB);
-const UNKNOWN_ACTION: B256 = B256::repeat_byte(0xCD);
-
-fn min_activation_at(height: u64) -> u64 {
-    height.saturating_add(MIN_ACTIVATION_BUFFER)
-}
+const UNKNOWN_TARGET: alloy_primitives::Address =
+    address!("0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead");
 
 #[test]
 fn approved_vote_proposal_schedules_update_and_activates() {
@@ -32,15 +30,9 @@ fn approved_vote_proposal_schedules_update_and_activates() {
         let current = 100u64;
         let deadline = current + VOTING_WINDOW_BLOCKS + 1;
         let activation = min_activation_at(deadline);
-        let payload = encode_scheduled_update_payload(V1_2, activation, b"notes");
+        let payload = update_json_payload(V1_2, activation, "notes");
         let proposal_id = governance
-            .create_proposal(
-                PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                &payload,
-                current,
-            )
+            .create_proposal(PROPOSER, UPDATE_ADDRESS, &payload, current)
             .unwrap();
 
         governance
@@ -75,109 +67,100 @@ fn approved_vote_proposal_schedules_update_and_activates() {
 }
 
 #[test]
-fn invalid_update_payload_marks_proposal_rejected() {
+fn invalid_json_payload_is_rejected_at_creation() {
     with_vote(|storage| {
         let mut governance = Vote::new(storage.clone());
-        let current = 200u64;
-        let proposal_id = governance
+        let err = governance
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"too-short",
-                current,
+                UPDATE_ADDRESS,
+                "not-json",
+                200,
             )
-            .unwrap();
-
-        governance
-            .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
-            .unwrap();
-        governance
-            .cast_vote_approve(proposal_id, VOTER_B, true, current + 2)
-            .unwrap();
-
-        let deadline = current + VOTING_WINDOW_BLOCKS + 1;
-        governance.process_begin_block_test(deadline).unwrap();
-
-        let record = governance.proposals.get(proposal_id).unwrap().unwrap();
-        assert_eq!(record.proposal_status().unwrap(), ProposalStatus::Rejected);
-
-        let update = Update::new(storage);
-        assert!(update.read_scheduled_update(proposal_id).unwrap().is_none());
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            PrecompileError::Revert(msg) if msg.contains("invalid proposal payload")
+        ));
     });
 }
 
 #[test]
-fn unknown_target_or_action_is_rejected_without_update_state_change() {
+fn invalid_update_payload_is_rejected_at_creation() {
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
+        let err = governance
+            .create_proposal(
+                PROPOSER,
+                UPDATE_ADDRESS,
+                r#"{"version":0,"activationHeight":1000,"info":""}"#,
+                200,
+            )
+            .unwrap_err();
+        assert!(matches!(err, PrecompileError::Revert(_)));
+    });
+}
+
+#[test]
+fn handler_conflict_marks_proposal_rejected() {
     with_vote(|storage| {
         let mut vote = Vote::new(storage.clone());
         let current = 250u64;
         let deadline = current + VOTING_WINDOW_BLOCKS + 1;
         let activation = min_activation_at(deadline);
-        let payload = encode_scheduled_update_payload(V1_2, activation, b"");
+        let payload = update_json_payload(V1_2, activation, "");
 
-        let unknown_target = vote
-            .create_proposal(
-                PROPOSER,
-                UNKNOWN_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                &payload,
-                current,
-            )
+        let first = vote
+            .create_proposal(PROPOSER, UPDATE_ADDRESS, &payload, current)
             .unwrap();
         for (voter, off) in [(VOTER_A, 1), (VOTER_B, 2)] {
-            vote.cast_vote_approve(unknown_target, voter, true, current + off)
+            vote.cast_vote_approve(first, voter, true, current + off)
                 .unwrap();
         }
+        vote.process_begin_block_test(deadline).unwrap();
+        assert_eq!(
+            vote.proposals
+                .get(first)
+                .unwrap()
+                .unwrap()
+                .proposal_status()
+                .unwrap(),
+            ProposalStatus::Approved
+        );
 
-        let unknown_action = vote
-            .create_proposal(
-                VOTER_A,
-                UPDATE_TARGET_MODULE,
-                UNKNOWN_ACTION,
-                &payload,
-                current + 1,
-            )
+        let second = vote
+            .create_proposal(VOTER_A, UPDATE_ADDRESS, &payload, current + 1)
             .unwrap();
         for (voter, off) in [(VOTER_A, 3), (VOTER_B, 4)] {
-            vote.cast_vote_approve(unknown_action, voter, true, current + off)
+            vote.cast_vote_approve(second, voter, true, current + off)
                 .unwrap();
         }
-
         vote.process_begin_block_test(deadline + 1).unwrap();
-
         assert_eq!(
             vote.proposals
-                .get(unknown_target)
+                .get(second)
                 .unwrap()
                 .unwrap()
                 .proposal_status()
                 .unwrap(),
             ProposalStatus::Rejected
         );
-        assert_eq!(
-            vote.proposals
-                .get(unknown_action)
-                .unwrap()
-                .unwrap()
-                .proposal_status()
-                .unwrap(),
-            ProposalStatus::Rejected
-        );
+    });
+}
 
-        let update = Update::new(storage);
-        assert!(update
-            .read_scheduled_update(unknown_target)
-            .unwrap()
-            .is_none());
-        assert!(update
-            .read_scheduled_update(unknown_action)
-            .unwrap()
-            .is_none());
-        assert_eq!(
-            update.get_active_version().unwrap(),
-            ProtocolVersion::ZERO
-        );
+#[test]
+fn unknown_target_is_rejected_at_creation() {
+    with_vote(|storage| {
+        let mut vote = Vote::new(storage.clone());
+        let current = 260u64;
+        let payload = empty_update_payload(current);
+        let err = vote
+            .create_proposal(PROPOSER, UNKNOWN_TARGET, &payload, current)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            PrecompileError::Revert(msg) if msg.contains("unknown vote target module")
+        ));
     });
 }
 
@@ -189,18 +172,13 @@ fn expired_update_proposal_does_not_emit_upgrade_activated() {
 
     let mut vote = Vote::new(storage.clone());
     let current = 400u64;
+    let payload = update_json_payload(
+        V1_2,
+        min_activation_at(current + VOTING_WINDOW_BLOCKS),
+        "",
+    );
     let proposal_id = vote
-        .create_proposal(
-            PROPOSER,
-            UPDATE_TARGET_MODULE,
-            SCHEDULE_UPDATE_ACTION,
-            &encode_scheduled_update_payload(
-                V1_2,
-                min_activation_at(current + VOTING_WINDOW_BLOCKS),
-                b"",
-            ),
-            current,
-        )
+        .create_proposal(PROPOSER, UPDATE_ADDRESS, &payload, current)
         .unwrap();
     vote.cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
         .unwrap();

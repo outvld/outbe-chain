@@ -19,9 +19,8 @@ interface IVote {
     struct ProposalInfo {
         uint256 proposalId;
         address proposer;
-        bytes32 targetModule;
-        bytes32 action;
-        bytes payload;
+        address targetModule;
+        string payload;
         uint64 createdHeight;
         uint64 votingDeadlineHeight;
         ProposalStatus status;
@@ -36,9 +35,8 @@ interface IVote {
     event ProposalCreated(
         uint256 indexed proposalId,
         address indexed proposer,
-        bytes32 targetModule,
-        bytes32 action,
-        bytes payload,
+        address targetModule,
+        string payload,
         uint64 votingDeadlineHeight
     );
 
@@ -58,10 +56,9 @@ interface IVote {
     event ProposalApproved(uint256 indexed proposalId, VoteTally state);
 
     /// @notice Creates a generic proposal.
-    /// @param targetModule Target system module identifier.
-    /// @param action Module-specific action identifier.
-    /// @param payload Opaque action payload decoded only by the target module handler.
-    function createProposal(bytes32 targetModule, bytes32 action, bytes calldata payload)
+    /// @param targetModule Target system module precompile address.
+    /// @param payload JSON payload decoded only by the target module handler.
+    function createProposal(address targetModule, string calldata payload)
         external
         returns (uint256 proposalId);
 

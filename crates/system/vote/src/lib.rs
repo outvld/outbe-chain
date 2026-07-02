@@ -25,6 +25,7 @@ pub use state::{
     active_validator_addresses, calculate_vote_tally, ProposalInfo, ProposalStatus, VoteInfo,
     VoteKind, VoteTally,
 };
+pub use targets::VoteTarget;
 
 #[cfg(test)]
 mod tests;

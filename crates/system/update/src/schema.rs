@@ -44,7 +44,7 @@ pub struct ScheduledUpdateRecord {
     pub activation_height: u64,
 
     #[attribute(order = 2)]
-    pub info: Vec<u8>,
+    pub info: String,
 
     #[attribute(order = 3)]
     pub status: u8, // ScheduledUpdateStatus

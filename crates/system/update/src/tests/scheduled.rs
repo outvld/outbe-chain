@@ -21,7 +21,7 @@ fn schedule_update_writes_fields_and_waiting_index() {
             proposal_id,
             V1_2,
             min_activation(current),
-            b"release-notes",
+            "release-notes",
             current,
         )
         .unwrap();
@@ -31,7 +31,7 @@ fn schedule_update_writes_fields_and_waiting_index() {
         assert_eq!(scheduled.version, V1_2);
         assert_eq!(scheduled.activation_height, min_activation(current));
         assert_eq!(scheduled.status, ScheduledUpdateStatus::Scheduled);
-        assert_eq!(scheduled.info, b"release-notes");
+        assert_eq!(scheduled.info, "release-notes");
         assert_eq!(
             update.list_waiting_for_activation_proposal_ids().unwrap(),
             vec![proposal_id]
@@ -59,15 +59,8 @@ fn rejects_downgrade_schedule() {
         let mut update = Update::new(storage.clone());
         update.set_active_version(V2_0, 1).unwrap();
 
-        let err = schedule_update(
-            &mut update,
-            U256::from(1),
-            V1_3,
-            min_activation(10),
-            b"",
-            10,
-        )
-        .unwrap_err();
+        let err = schedule_update(&mut update, U256::from(1), V1_3, min_activation(10), "", 10)
+            .unwrap_err();
         assert!(matches!(
             err,
             PrecompileError::Revert(msg) if msg.contains("downgrade")
@@ -86,7 +79,7 @@ fn rejects_duplicate_proposal_id() {
             proposal_id,
             V1_2,
             min_activation(current),
-            b"",
+            "",
             current,
         )
         .unwrap();
@@ -96,7 +89,7 @@ fn rejects_duplicate_proposal_id() {
             proposal_id,
             V1_2,
             min_activation(current) + 1,
-            b"",
+            "",
             current,
         )
         .unwrap_err();
@@ -113,10 +106,10 @@ fn rejects_conflicting_activation_height() {
         let mut update = Update::new(storage.clone());
         let current = 100u64;
         let activation = min_activation(current);
-        schedule_update(&mut update, U256::from(1), V1_2, activation, b"", current).unwrap();
+        schedule_update(&mut update, U256::from(1), V1_2, activation, "", current).unwrap();
 
-        let err = schedule_update(&mut update, U256::from(2), V1_2, activation, b"", current)
-            .unwrap_err();
+        let err =
+            schedule_update(&mut update, U256::from(2), V1_2, activation, "", current).unwrap_err();
         assert!(matches!(
             err,
             PrecompileError::Revert(msg) if msg.contains("activation height")
@@ -136,7 +129,7 @@ fn max_waiting_for_activation_updates_is_enforced() {
                 U256::from(i + 1),
                 V1_2,
                 base_activation + i as u64,
-                b"",
+                "",
                 current,
             )
             .unwrap();
@@ -147,7 +140,7 @@ fn max_waiting_for_activation_updates_is_enforced() {
             U256::from(65),
             V1_2,
             base_activation + 64,
-            b"",
+            "",
             current,
         )
         .unwrap_err();

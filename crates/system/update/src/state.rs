@@ -15,7 +15,7 @@ pub struct ScheduledUpdateInfo {
     pub proposal_id: U256,
     pub version: ProtocolVersion,
     pub activation_height: u64,
-    pub info: Vec<u8>,
+    pub info: String,
     pub status: ScheduledUpdateStatus,
 }
 
@@ -91,7 +91,7 @@ impl Update<'_> {
         proposal_id: U256,
         version: ProtocolVersion,
         activation_height: u64,
-        info: &[u8],
+        info: &str,
     ) -> Result<()> {
         if proposal_id.is_zero() {
             return Err(UpdateError::InvalidPayload.into());
@@ -101,7 +101,7 @@ impl Update<'_> {
             proposal_id,
             version,
             activation_height,
-            info: info.to_vec(),
+            info: info.to_string(),
             status: ScheduledUpdateStatus::Scheduled.to_u8(),
         };
         self.scheduled_updates.create(&record)?;

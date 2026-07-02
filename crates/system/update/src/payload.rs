@@ -1,42 +1,86 @@
 //! Vote payload encoding for scheduled updates.
 //!
-//! Layout: `version: u32 BE` | `activation_height: u64 BE` | `info: bytes`
+//! JSON schema:
+//! ```json
+//! {"version":65538, "activationHeight":12345, "info":"notes"}
+//! ```
 
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::constants::MIN_ACTIVATION_BUFFER;
 use crate::errors::UpdateError;
 use crate::ProtocolVersion;
 
-const HEADER_LEN: usize = 12;
-
-/// Decodes an approved vote payload into update fields.
-pub fn decode_scheduled_update_payload(
-    payload: &[u8],
-) -> std::result::Result<(ProtocolVersion, u64, Vec<u8>), UpdateError> {
-    if payload.len() < HEADER_LEN {
-        return Err(UpdateError::InvalidPayload);
-    }
-    let version = ProtocolVersion::from(u32::from_be_bytes(
-        payload[0..4]
-            .try_into()
-            .map_err(|_| UpdateError::InvalidPayload)?,
-    ));
-    let activation_height = u64::from_be_bytes(
-        payload[4..12]
-            .try_into()
-            .map_err(|_| UpdateError::InvalidPayload)?,
-    );
-    let info = payload[12..].to_vec();
-    Ok((version, activation_height, info))
+/// JSON payload for scheduling a protocol update via vote.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleUpdatePayload {
+    pub version: u32,
+    pub activation_height: u64,
+    #[serde(default)]
+    pub info: String,
 }
 
-/// Encodes update fields into a vote payload.
-pub fn encode_scheduled_update_payload(
+impl ScheduleUpdatePayload {
+    pub fn new(version: ProtocolVersion, activation_height: u64, info: impl Into<String>) -> Self {
+        Self {
+            version: version.raw(),
+            activation_height,
+            info: info.into(),
+        }
+    }
+
+    pub fn from_value(payload: &Value) -> std::result::Result<Self, UpdateError> {
+        serde_json::from_value(payload.clone()).map_err(|_| UpdateError::InvalidPayload)
+    }
+
+    pub fn protocol_version(&self) -> ProtocolVersion {
+        ProtocolVersion::from(self.version)
+    }
+
+    pub fn validate(&self, current_height: u64) -> std::result::Result<(), UpdateError> {
+        if self.protocol_version().is_zero() {
+            return Err(UpdateError::InvalidVersion);
+        }
+        let min_activation = current_height.saturating_add(MIN_ACTIVATION_BUFFER);
+        if self.activation_height < min_activation {
+            return Err(UpdateError::HeightInPast);
+        }
+        Ok(())
+    }
+}
+
+/// Encodes update fields into a vote JSON payload string.
+pub fn encode_schedule_update_json(
     version: ProtocolVersion,
     activation_height: u64,
-    info: &[u8],
-) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(HEADER_LEN + info.len());
-    buf.extend_from_slice(&version.raw().to_be_bytes());
-    buf.extend_from_slice(&activation_height.to_be_bytes());
-    buf.extend_from_slice(info);
-    buf
+    info: &str,
+) -> String {
+    serde_json::to_string(&ScheduleUpdatePayload::new(
+        version,
+        activation_height,
+        info,
+    ))
+    .expect("schedule update payload JSON should serialize")
+}
+
+/// Decodes a vote JSON payload into update fields.
+pub fn decode_schedule_update_json(
+    payload: &Value,
+) -> std::result::Result<(ProtocolVersion, u64, String), UpdateError> {
+    let decoded = ScheduleUpdatePayload::from_value(payload)?;
+    Ok((
+        decoded.protocol_version(),
+        decoded.activation_height,
+        decoded.info,
+    ))
+}
+
+/// Validates structural update JSON fields and activation-height buffer.
+pub fn validate_schedule_update_json(
+    payload: &Value,
+    current_height: u64,
+) -> std::result::Result<(), UpdateError> {
+    ScheduleUpdatePayload::from_value(payload)?.validate(current_height)
 }

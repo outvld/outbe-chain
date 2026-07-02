@@ -1,5 +1,6 @@
 use alloy_primitives::{address, Address, U256};
 
+use outbe_primitives::addresses::UPDATE_ADDRESS;
 use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
 use outbe_primitives::error::{PrecompileError, Result};
 use outbe_primitives::storage::hashmap::HashMapStorageProvider;
@@ -10,15 +11,14 @@ use outbe_validatorset::logic::status;
 use crate::api::{get_proposal, get_proposal_voters, list_proposals, list_proposals_by_status};
 use outbe_update::constants::MIN_ACTIVATION_BUFFER;
 use outbe_update::encode_protocol_version;
-use outbe_update::payload::encode_scheduled_update_payload;
+use outbe_update::payload::encode_schedule_update_json;
+use outbe_update::ProtocolVersion;
 
 use crate::constants::VOTING_WINDOW_BLOCKS;
 use crate::runtime::quorum_reached;
 use crate::schema::ProposalStatus;
 use crate::schema::Vote;
 use crate::state::{calculate_vote_tally, vote_key, VoteKind, VoteTally};
-
-use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
 pub(super) const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
 pub(super) const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
@@ -63,6 +63,26 @@ pub(super) fn setup_default_validators(storage: StorageHandle) {
     register_active_validator(storage.clone(), PROPOSER, 1);
     register_active_validator(storage.clone(), VOTER_A, 2);
     register_active_validator(storage.clone(), VOTER_B, 3);
+}
+
+pub(super) fn min_activation_at(height: u64) -> u64 {
+    height.saturating_add(MIN_ACTIVATION_BUFFER)
+}
+
+pub(super) fn update_json_payload(
+    version: ProtocolVersion,
+    activation_height: u64,
+    info: &str,
+) -> String {
+    encode_schedule_update_json(version, activation_height, info)
+}
+
+pub(super) fn empty_update_payload(current_height: u64) -> String {
+    update_json_payload(
+        encode_protocol_version(1, 2),
+        min_activation_at(current_height),
+        "",
+    )
 }
 
 pub(super) fn with_vote<F: FnOnce(StorageHandle)>(f: F) {
@@ -139,9 +159,8 @@ fn write_vote_appends_ordered_voters() {
         let proposal_id = governance
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"payload",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -186,9 +205,8 @@ fn duplicate_vote_is_rejected() {
         let proposal_id = governance
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -220,9 +238,8 @@ fn get_proposal_voters_pagination_is_deterministic() {
         let proposal_id = governance
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -264,9 +281,8 @@ fn get_proposal_uses_active_set_at_read_time() {
         let proposal_id = governance
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -300,12 +316,11 @@ fn inactive_voter_is_ignored_at_deadline_tally() {
         let deadline = current + VOTING_WINDOW_BLOCKS + 1;
         let version = encode_protocol_version(1, 2);
         let activation = deadline.saturating_add(MIN_ACTIVATION_BUFFER);
-        let payload = encode_scheduled_update_payload(version, activation, b"");
+        let payload = update_json_payload(version, activation, "");
         let proposal_id = governance
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
+                UPDATE_ADDRESS,
                 &payload,
                 current,
             )
@@ -350,9 +365,8 @@ fn deadline_quorum_requires_two_thirds_of_active_set() {
         let proposal_id = governance
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
@@ -377,18 +391,16 @@ fn list_proposals_and_by_status_are_paginated() {
         let first = governance
             .create_proposal(
                 PROPOSER,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"one",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current),
                 current,
             )
             .unwrap();
         let second = governance
             .create_proposal(
                 VOTER_A,
-                UPDATE_TARGET_MODULE,
-                SCHEDULE_UPDATE_ACTION,
-                b"two",
+                UPDATE_ADDRESS,
+                &empty_update_payload(current + 1),
                 current + 1,
             )
             .unwrap();

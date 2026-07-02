@@ -17,12 +17,13 @@ use outbe_update::lifecycle::UpdateLifecycle;
 use outbe_update::precompile::{dispatch, IUpdate};
 use outbe_update::schema::Update;
 use outbe_update::state::ScheduledUpdateStatus;
-use outbe_update::{encode_protocol_version, encode_scheduled_update_payload, ProtocolVersion};
+use outbe_update::payload::encode_schedule_update_json;
+use outbe_update::{encode_protocol_version, ProtocolVersion};
+use serde_json::Value;
 use outbe_validatorset::contract::ValidatorSet;
 use outbe_vote::constants::VOTING_WINDOW_BLOCKS;
 use outbe_vote::schema::ProposalStatus;
 use outbe_vote::schema::Vote;
-use outbe_vote::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
 const CHAIN_ID: u64 = 1;
 const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
@@ -115,10 +116,11 @@ fn schedule_update(
     activation: u64,
     current: u64,
 ) {
-    let payload = encode_scheduled_update_payload(version, activation, b"");
+    let payload: Value = serde_json::from_str(&encode_schedule_update_json(version, activation, ""))
+        .expect("schedule update JSON should parse");
     update
-        .schedule_update_from_vote(proposal_id, &payload, current)
-        .expect("schedule_update_from_vote should succeed");
+        .schedule_update_from_propose(proposal_id, &payload, current)
+        .expect("schedule_update_from_propose should succeed");
 }
 
 fn run_vote_begin_block(storage: StorageHandle, block_number: u64) {
@@ -172,14 +174,8 @@ fn create_update_proposal_from(
     activation: u64,
     current: u64,
 ) -> U256 {
-    let payload = encode_scheduled_update_payload(version, activation, b"");
-    vote.create_proposal(
-        proposer,
-        UPDATE_TARGET_MODULE,
-        SCHEDULE_UPDATE_ACTION,
-        &payload,
-        current,
-    )
+    let payload = encode_schedule_update_json(version, activation, "");
+    vote.create_proposal(proposer, UPDATE_ADDRESS, &payload, current)
     .unwrap()
 }
 
@@ -205,9 +201,14 @@ fn downgrade_schedule_rejected() {
         let mut update = Update::new(storage.clone());
         update.set_active_version(V1_3, 1).unwrap();
 
-        let payload = encode_scheduled_update_payload(V1_2, min_activation(current), b"");
+        let payload: Value = serde_json::from_str(&encode_schedule_update_json(
+            V1_2,
+            min_activation(current),
+            "",
+        ))
+        .unwrap();
         let err = update
-            .schedule_update_from_vote(U256::from(1), &payload, current)
+            .schedule_update_from_propose(U256::from(1), &payload, current)
             .unwrap_err();
         assert!(
             matches!(
@@ -226,9 +227,10 @@ fn conflicting_activation_heights_rejected() {
         let mut update = Update::new(storage.clone());
         schedule_update(&mut update, U256::from(1), V1_2, activation, current);
 
-        let payload = encode_scheduled_update_payload(V1_3, activation, b"");
+        let payload: Value =
+            serde_json::from_str(&encode_schedule_update_json(V1_3, activation, "")).unwrap();
         let err = update
-            .schedule_update_from_vote(U256::from(2), &payload, current)
+            .schedule_update_from_propose(U256::from(2), &payload, current)
             .unwrap_err();
         assert!(
             matches!(
@@ -511,9 +513,8 @@ fn executor_runs_vote_before_update() {
     let proposal_id = vote
         .create_proposal(
             PROPOSER,
-            UPDATE_TARGET_MODULE,
-            SCHEDULE_UPDATE_ACTION,
-            &encode_scheduled_update_payload(V1_3, proposal_activation, b""),
+            UPDATE_ADDRESS,
+            &encode_schedule_update_json(V1_3, proposal_activation, ""),
             created,
         )
         .unwrap();

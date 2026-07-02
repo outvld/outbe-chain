@@ -19,7 +19,10 @@ pub mod version;
 pub use handlers::{
     UpgradeHandler, UpgradeHandlerRegistry, UpgradeHandlerSpec, EMPTY_UPGRADE_HANDLER_REGISTRY,
 };
-pub use payload::{decode_scheduled_update_payload, encode_scheduled_update_payload};
+pub use payload::{
+    decode_schedule_update_json, encode_schedule_update_json, validate_schedule_update_json,
+    ScheduleUpdatePayload,
+};
 pub use schema::Update;
 pub use state::ScheduledUpdateInfo;
 pub use version::{encode_protocol_version, ProtocolVersion};

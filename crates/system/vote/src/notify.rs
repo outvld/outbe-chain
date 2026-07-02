@@ -1,6 +1,6 @@
 //! Combined on-chain event emission and governance-journal recording.
 
-use alloy_primitives::{keccak256, Address, B256, U256};
+use alloy_primitives::{keccak256, Address, U256};
 use outbe_primitives::error::Result;
 use outbe_primitives::governance_journal::{
     record as journal_record, JournalRecord, ProposalRef, VoteTallyRef,
@@ -17,22 +17,16 @@ pub(crate) enum ProposalFinalization {
     Expired,
 }
 
-fn proposal_ref(proposal_id: U256, proposer: Address, target_module: B256, action: B256) -> ProposalRef {
+fn proposal_ref(proposal_id: U256, proposer: Address, target_module: Address) -> ProposalRef {
     ProposalRef {
         proposal_id: format!("{proposal_id}"),
         proposer: format!("{proposer:?}"),
         target_module: format!("{target_module:?}"),
-        action: format!("{action:?}"),
     }
 }
 
 fn proposal_ref_from_record(proposal: &ProposalRecord) -> ProposalRef {
-    proposal_ref(
-        proposal.id,
-        proposal.proposer,
-        proposal.target_module,
-        proposal.action,
-    )
+    proposal_ref(proposal.id, proposal.proposer, proposal.target_module)
 }
 
 fn tally_ref(tally: &VoteTally, active_validator_count: u32) -> VoteTallyRef {
@@ -57,25 +51,23 @@ impl Vote<'_> {
         block_number: u64,
         proposal_id: U256,
         proposer: Address,
-        target_module: B256,
-        action: B256,
-        payload: &[u8],
+        target_module: Address,
+        payload: &str,
         voting_deadline_height: u64,
     ) -> Result<()> {
         self.emit(IVote::ProposalCreated {
             proposalId: proposal_id,
             proposer,
             targetModule: target_module,
-            action,
-            payload: payload.to_vec().into(),
+            payload: payload.to_string(),
             votingDeadlineHeight: voting_deadline_height,
         })?;
         journal_record(JournalRecord::proposal_created(
             block_number,
-            proposal_ref(proposal_id, proposer, target_module, action),
+            proposal_ref(proposal_id, proposer, target_module),
             voting_deadline_height,
             payload.len(),
-            format!("{:?}", keccak256(payload)),
+            format!("{:?}", keccak256(payload.as_bytes())),
         ));
         Ok(())
     }

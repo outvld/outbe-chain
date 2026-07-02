@@ -23,10 +23,10 @@ pub enum VoteError {
     InvalidProposalStatus,
     #[error("invalid vote kind")]
     InvalidVoteKind,
+    #[error("invalid proposal payload")]
+    InvalidPayload,
     #[error("unknown vote target module")]
     UnknownTargetModule,
-    #[error("unknown vote action")]
-    UnknownAction,
 }
 
 impl From<VoteError> for PrecompileError {

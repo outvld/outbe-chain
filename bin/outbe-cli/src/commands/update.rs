@@ -4,11 +4,11 @@ use alloy_primitives::U256;
 use alloy_sol_types::SolCall;
 use clap::Subcommand;
 use eyre::{Result, WrapErr};
+use outbe_primitives::addresses::UPDATE_ADDRESS;
 use outbe_update::constants::PROTOCOL_VERSION;
-use outbe_update::payload::decode_scheduled_update_payload;
+use outbe_update::payload::{decode_schedule_update_json, encode_schedule_update_json};
 use outbe_update::version::{format_protocol_version, try_parse_protocol_version};
-use outbe_update::{encode_scheduled_update_payload, ProtocolVersion};
-use outbe_vote::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
+use outbe_update::ProtocolVersion;
 use serde_json::Value;
 
 use crate::abi::{IVote, VOTE_ADDRESS};
@@ -147,12 +147,15 @@ fn ensure_approve_version_compatible(
 
 fn decode_update_fields_from_proposal(
     proposal: &IVote::ProposalInfo,
-) -> Result<(ProtocolVersion, u64, Vec<u8>)> {
-    if proposal.targetModule != UPDATE_TARGET_MODULE || proposal.action != SCHEDULE_UPDATE_ACTION {
+) -> Result<(ProtocolVersion, u64, String)> {
+    if proposal.targetModule != UPDATE_ADDRESS {
         eyre::bail!("proposal is not an update scheduling action");
     }
-    decode_scheduled_update_payload(proposal.payload.as_ref())
-        .map_err(|err| eyre::eyre!("invalid update payload in proposal: {err}"))
+    let value: Value = serde_json::from_str(&proposal.payload)
+        .map_err(|err| eyre::eyre!("invalid update payload in proposal: {err}"))?;
+    let (version, activation_height, info) = decode_schedule_update_json(&value)
+        .map_err(|err| eyre::eyre!("invalid update payload in proposal: {err}"))?;
+    Ok((version, activation_height, info))
 }
 
 async fn fetch_vote_proposal(
@@ -183,13 +186,18 @@ async fn propose(
         let active = fetch_active_version(client).await?;
         ensure_propose_version_compatible(version, active, PROTOCOL_VERSION)?;
     }
-    let info_bytes = parse_info_bytes(info)?;
-    let payload = encode_scheduled_update_payload(version, activation_height, &info_bytes);
+    let info_text = match parse_info_bytes(info)? {
+        bytes if bytes.is_empty() => String::new(),
+        bytes => match String::from_utf8(bytes.clone()) {
+            Ok(text) => text,
+            Err(_) => hex::encode(bytes),
+        },
+    };
+    let payload = encode_schedule_update_json(version, activation_height, &info_text);
 
     let call = IVote::createProposalCall {
-        targetModule: UPDATE_TARGET_MODULE,
-        action: SCHEDULE_UPDATE_ACTION,
-        payload: payload.into(),
+        targetModule: UPDATE_ADDRESS,
+        payload,
     };
     let tx_hash = signer
         .send_tx(client, VOTE_ADDRESS, call.abi_encode(), U256::ZERO)
@@ -397,13 +405,12 @@ mod tests {
     }
 
     fn mock_proposal_info(proposal_id: U256, version: ProtocolVersion) -> IVote::ProposalInfo {
-        let payload = encode_scheduled_update_payload(version, 1000, b"notes");
+        let payload = encode_schedule_update_json(version, 1000, "notes");
         IVote::ProposalInfo {
             proposalId: proposal_id,
             proposer: Address::ZERO,
-            targetModule: UPDATE_TARGET_MODULE,
-            action: SCHEDULE_UPDATE_ACTION,
-            payload: payload.into(),
+            targetModule: UPDATE_ADDRESS,
+            payload,
             createdHeight: 10,
             votingDeadlineHeight: 100,
             status: IVote::ProposalStatus::Pending,
@@ -416,11 +423,10 @@ mod tests {
     async fn propose_sends_vote_create_proposal_tx() {
         let private_key = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
         let version = encode_protocol_version(1, 2);
-        let payload = encode_scheduled_update_payload(version, 1000, b"notes");
+        let payload = encode_schedule_update_json(version, 1000, "notes");
         let call = IVote::createProposalCall {
-            targetModule: UPDATE_TARGET_MODULE,
-            action: SCHEDULE_UPDATE_ACTION,
-            payload: payload.into(),
+            targetModule: UPDATE_ADDRESS,
+            payload,
         };
         let rpc = recording_send_tx_rpc(private_key, VOTE_ADDRESS, call.abi_encode(), U256::ZERO)
             .unwrap();

@@ -6,10 +6,11 @@ use outbe_primitives::storage::StorageHandle;
 
 use crate::constants::MIN_ACTIVATION_BUFFER;
 use crate::handlers::EMPTY_UPGRADE_HANDLER_REGISTRY;
-use crate::payload::encode_scheduled_update_payload;
+use crate::payload::encode_schedule_update_json;
 use crate::schema::Update;
 use crate::{encode_protocol_version, ProtocolVersion};
 use outbe_primitives::error::Result;
+use serde_json::Value;
 
 mod events;
 mod handlers;
@@ -53,11 +54,16 @@ pub(super) fn schedule_update(
     proposal_id: U256,
     version: ProtocolVersion,
     activation_height: u64,
-    info: &[u8],
+    info: &str,
     current_height: u64,
 ) -> Result<()> {
-    let payload = encode_scheduled_update_payload(version, activation_height, info);
-    update.schedule_update_from_vote(proposal_id, &payload, current_height)
+    let payload: Value = serde_json::from_str(&encode_schedule_update_json(
+        version,
+        activation_height,
+        info,
+    ))
+    .expect("schedule update JSON should parse");
+    update.schedule_update_from_propose(proposal_id, &payload, current_height)
 }
 
 /// Test-only helper: runs begin-block processing with an empty handler registry.

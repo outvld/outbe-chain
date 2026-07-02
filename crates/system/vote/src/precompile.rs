@@ -40,13 +40,7 @@ fn dispatch_vote_call(
     match call {
         createProposal(c) => mutate(c, caller, |sender, c| {
             let block_number = storage.block_number()?;
-            governance.create_proposal(
-                sender,
-                c.targetModule,
-                c.action,
-                c.payload.as_ref(),
-                block_number,
-            )
+            governance.create_proposal(sender, c.targetModule, &c.payload, block_number)
         }),
         castVote(c) => mutate_void(c, caller, |sender, c| {
             let block_number = storage.block_number()?;
@@ -77,8 +71,7 @@ fn proposal_info_return(info: &ProposalInfo) -> IVote::ProposalInfo {
         proposalId: info.id,
         proposer: info.proposer,
         targetModule: info.target_module,
-        action: info.action,
-        payload: info.payload.clone().into(),
+        payload: info.payload.clone(),
         createdHeight: info.created_height,
         votingDeadlineHeight: info.voting_deadline_height,
         status: proposal_status_to_abi(info.status),
