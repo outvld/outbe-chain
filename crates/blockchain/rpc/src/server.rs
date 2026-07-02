@@ -24,7 +24,7 @@ use std::sync::Arc;
 use crate::api::{
     ConsensusStatusInfo, EmissionInfo, EpochInfo, FinalizationProof, OutbeApiServer,
     ParticipationInfo, Phase1VerificationMode, SlashConfig, SlashInfo, SyncStatusInfo,
-    UpdateActiveVersionInfo, UpdateScheduledUpdateInfo, ValidatorDetailInfo, ValidatorInfo,
+    ValidatorDetailInfo, ValidatorInfo,
 };
 
 /// Bridge from Reth's `StateProvider` to outbe's `StorageReader` trait.
@@ -330,40 +330,6 @@ where
         Ok(FinalizationProof {
             finalization_hex: format!("0x{}", hex::encode(&proof.finalization)),
             block_hex: format!("0x{}", hex::encode(&proof.block)),
-        })
-    }
-    async fn get_update_active_version(&self) -> RpcResult<UpdateActiveVersionInfo> {
-        self.with_latest_state(|storage| {
-            let update = outbe_update::schema::Update::new(storage);
-            let version = update.get_active_version()?;
-            Ok((version, update.get_active_version_height()?).into())
-        })
-    }
-
-    async fn get_update_scheduled_update(
-        &self,
-        proposal_id: U256,
-    ) -> RpcResult<Option<UpdateScheduledUpdateInfo>> {
-        self.with_latest_state(|storage| {
-            let update = outbe_update::schema::Update::new(storage);
-            Ok(update
-                .read_scheduled_update(proposal_id)?
-                .map(UpdateScheduledUpdateInfo::from))
-        })
-    }
-
-    async fn list_update_waiting_for_activation(
-        &self,
-    ) -> RpcResult<Vec<UpdateScheduledUpdateInfo>> {
-        self.with_latest_state(|storage| {
-            let update = outbe_update::schema::Update::new(storage);
-            let mut scheduled = Vec::new();
-            for proposal_id in update.list_waiting_for_activation_proposal_ids()? {
-                if let Some(record) = update.read_scheduled_update(proposal_id)? {
-                    scheduled.push(record.into());
-                }
-            }
-            Ok(scheduled)
         })
     }
 }

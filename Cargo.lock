@@ -6744,8 +6744,6 @@ dependencies = [
  "outbe-primitives",
  "outbe-rpc",
  "outbe-tee",
- "outbe-update",
- "outbe-vote",
  "reqwest 0.12.28",
  "ring",
  "serde",
@@ -7441,6 +7439,7 @@ name = "outbe-rpc"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-sol-types",
  "eyre",
  "hex",
  "jsonrpsee",
@@ -7450,6 +7449,7 @@ dependencies = [
  "outbe-staking",
  "outbe-update",
  "outbe-validatorset",
+ "outbe-vote",
  "reth-ethereum",
  "serde",
  "serde_json",

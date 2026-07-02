@@ -148,73 +148,6 @@ pub struct FinalizationProof {
     /// Hex of the `commonware_codec::Encode` finalized `ConsensusBlock`.
     pub block_hex: String,
 }
-/// Lifecycle status of a scheduled update (`IUpdate.ScheduledUpdateStatus`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum UpdateScheduledUpdateStatus {
-    Scheduled,
-    Activated,
-    Canceled,
-}
-
-/// Active on-chain protocol version.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateActiveVersionInfo {
-    pub version: u32,
-    pub major: u8,
-    pub minor: u32,
-    pub activation_height: u64,
-}
-
-/// Scheduled update details (`IUpdate.ScheduledUpdate`).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateScheduledUpdateInfo {
-    pub proposal_id: U256,
-    pub version: u32,
-    pub major: u8,
-    pub minor: u32,
-    pub activation_height: u64,
-    pub info: String,
-    pub status: UpdateScheduledUpdateStatus,
-}
-
-impl From<outbe_update::state::ScheduledUpdateStatus> for UpdateScheduledUpdateStatus {
-    fn from(status: outbe_update::state::ScheduledUpdateStatus) -> Self {
-        match status {
-            outbe_update::state::ScheduledUpdateStatus::Scheduled => Self::Scheduled,
-            outbe_update::state::ScheduledUpdateStatus::Activated => Self::Activated,
-            outbe_update::state::ScheduledUpdateStatus::Canceled => Self::Canceled,
-        }
-    }
-}
-
-impl From<outbe_update::ScheduledUpdateInfo> for UpdateScheduledUpdateInfo {
-    fn from(scheduled: outbe_update::ScheduledUpdateInfo) -> Self {
-        Self {
-            proposal_id: scheduled.proposal_id,
-            version: scheduled.version.into(),
-            major: outbe_update::state::protocol_version_major(scheduled.version),
-            minor: outbe_update::state::protocol_version_minor(scheduled.version),
-            activation_height: scheduled.activation_height,
-            info: scheduled.info,
-            status: scheduled.status.into(),
-        }
-    }
-}
-
-impl From<(outbe_update::ProtocolVersion, u64)> for UpdateActiveVersionInfo {
-    fn from((version, activation_height): (outbe_update::ProtocolVersion, u64)) -> Self {
-        Self {
-            version: version.into(),
-            major: outbe_update::state::protocol_version_major(version),
-            minor: outbe_update::state::protocol_version_minor(version),
-            activation_height,
-        }
-    }
-}
-
 /// Outbe custom RPC namespace.
 ///
 /// Provides read-only access to validator infrastructure state.
@@ -286,25 +219,6 @@ pub trait OutbeApi {
     /// epoch committee — this RPC is a bytes transport, not a trust root.
     #[method(name = "getFinalization")]
     async fn get_finalization(&self, height: u64) -> jsonrpsee::core::RpcResult<FinalizationProof>;
-
-    /// Returns the active on-chain protocol version.
-    #[method(name = "getUpdateActiveVersion")]
-    async fn get_update_active_version(
-        &self,
-    ) -> jsonrpsee::core::RpcResult<UpdateActiveVersionInfo>;
-
-    /// Returns a scheduled update by vote proposal id.
-    #[method(name = "getUpdateScheduledUpdate")]
-    async fn get_update_scheduled_update(
-        &self,
-        proposal_id: U256,
-    ) -> jsonrpsee::core::RpcResult<Option<UpdateScheduledUpdateInfo>>;
-
-    /// Returns scheduled updates waiting for activation height.
-    #[method(name = "listUpdateWaitingForActivation")]
-    async fn list_update_waiting_for_activation(
-        &self,
-    ) -> jsonrpsee::core::RpcResult<Vec<UpdateScheduledUpdateInfo>>;
 }
 
 #[cfg(test)]
@@ -446,25 +360,5 @@ mod tests {
 
         assert!(!deserialized.consensus_active);
         assert!(deserialized.is_syncing);
-    }
-
-    #[test]
-    fn test_update_scheduled_update_info_serialization_camel_case() {
-        use super::{UpdateScheduledUpdateInfo, UpdateScheduledUpdateStatus};
-
-        let info = UpdateScheduledUpdateInfo {
-            proposal_id: U256::from(1),
-            version: 65538,
-            major: 1,
-            minor: 2,
-            activation_height: 1000,
-            info: "6869".to_string(),
-            status: UpdateScheduledUpdateStatus::Scheduled,
-        };
-
-        let json = serde_json::to_string(&info).unwrap();
-        assert!(json.contains("\"proposalId\""));
-        assert!(json.contains("\"activationHeight\""));
-        assert!(json.contains("\"scheduled\""));
     }
 }

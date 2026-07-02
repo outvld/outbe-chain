@@ -83,10 +83,10 @@ enum Commands {
         #[command(subcommand)]
         cmd: commands::tee::TeeCmd,
     },
-    /// On-chain upgrade voting.
-    Update {
+    /// On-chain generic vote proposals.
+    Vote {
         #[command(subcommand)]
-        cmd: commands::update::UpdateCmd,
+        cmd: commands::vote::VoteCmd,
     },
 }
 
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
         Commands::Tribute { cmd } => cmd.run(&client, cli.private_key.as_deref()).await,
         Commands::ZeroFee { cmd } => cmd.run(&client, cli.private_key.as_deref()).await,
         Commands::Tee { cmd } => cmd.run(&client, cli.private_key.as_deref()).await,
-        Commands::Update { cmd } => cmd.run(&client, cli.private_key.as_deref()).await,
+        Commands::Vote { cmd } => cmd.run(&client, cli.private_key.as_deref()).await,
     }
 }
 
@@ -214,14 +214,8 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_parse_update_status() {
-        let cli = Cli::try_parse_from(["outbe-cli", "update", "status"]);
-        assert!(cli.is_ok());
-    }
-
-    #[test]
-    fn test_cli_parse_update_status_with_proposal_id() {
-        let cli = Cli::try_parse_from(["outbe-cli", "update", "status", "--proposal-id", "1"]);
+    fn test_cli_parse_vote_status() {
+        let cli = Cli::try_parse_from(["outbe-cli", "vote", "status", "--proposal-id", "1"]);
         assert!(cli.is_ok());
     }
 

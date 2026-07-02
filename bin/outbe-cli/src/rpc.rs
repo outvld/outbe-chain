@@ -44,16 +44,6 @@ pub trait Rpc {
     fn outbe_get_vrf_seed(&self) -> impl std::future::Future<Output = Result<Value>> + Send;
     fn outbe_get_emission_info(&self) -> impl std::future::Future<Output = Result<Value>> + Send;
     fn outbe_get_slash_config(&self) -> impl std::future::Future<Output = Result<Value>> + Send;
-    fn outbe_get_update_active_version(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Value>> + Send;
-    fn outbe_get_update_scheduled_update(
-        &self,
-        proposal_id: U256,
-    ) -> impl std::future::Future<Output = Result<Option<Value>>> + Send;
-    fn outbe_list_update_waiting_for_activation(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Value>> + Send;
     fn eth_get_logs(
         &self,
         address: Address,
@@ -297,33 +287,6 @@ impl Rpc for RpcClient {
             .await
     }
 
-    async fn outbe_get_update_active_version(&self) -> Result<Value> {
-        self.call_rpc("outbe_getUpdateActiveVersion", serde_json::json!([]))
-            .await
-    }
-
-    async fn outbe_get_update_scheduled_update(&self, proposal_id: U256) -> Result<Option<Value>> {
-        let result = self
-            .call_rpc(
-                "outbe_getUpdateScheduledUpdate",
-                serde_json::json!([proposal_id]),
-            )
-            .await?;
-        if result.is_null() {
-            Ok(None)
-        } else {
-            Ok(Some(result))
-        }
-    }
-
-    async fn outbe_list_update_waiting_for_activation(&self) -> Result<Value> {
-        self.call_rpc(
-            "outbe_listUpdateWaitingForActivation",
-            serde_json::json!([]),
-        )
-        .await
-    }
-
     async fn eth_get_logs(
         &self,
         address: Address,
@@ -436,9 +399,6 @@ pub mod mock {
         pub vrf_seed: Result<Value>,
         pub emission_info: Result<Value>,
         pub slash_config: Result<Value>,
-        pub update_active_version: Result<Value>,
-        pub update_scheduled_update: Result<Option<Value>>,
-        pub update_waiting_for_activation: Result<Value>,
         pub logs: Result<Vec<Value>>,
     }
 
@@ -461,9 +421,6 @@ pub mod mock {
                 vrf_seed: Err(eyre::eyre!("not mocked")),
                 emission_info: Err(eyre::eyre!("not mocked")),
                 slash_config: Err(eyre::eyre!("not mocked")),
-                update_active_version: Err(eyre::eyre!("not mocked")),
-                update_scheduled_update: Err(eyre::eyre!("not mocked")),
-                update_waiting_for_activation: Err(eyre::eyre!("not mocked")),
                 logs: Err(eyre::eyre!("not mocked")),
             }
         }
@@ -532,18 +489,6 @@ pub mod mock {
         }
         async fn outbe_get_slash_config(&self) -> Result<Value> {
             clone_result(&self.slash_config)
-        }
-        async fn outbe_get_update_active_version(&self) -> Result<Value> {
-            clone_result(&self.update_active_version)
-        }
-        async fn outbe_get_update_scheduled_update(
-            &self,
-            _proposal_id: U256,
-        ) -> Result<Option<Value>> {
-            clone_result(&self.update_scheduled_update)
-        }
-        async fn outbe_list_update_waiting_for_activation(&self) -> Result<Value> {
-            clone_result(&self.update_waiting_for_activation)
         }
         async fn eth_get_logs(
             &self,
@@ -644,30 +589,6 @@ pub mod mock {
         async fn outbe_get_slash_config(&self) -> Result<Value> {
             self.next_response(RecordedRpcCall::OutbeGetSlashConfig)?
                 .into_value("outbe_getSlashConfig")
-        }
-
-        async fn outbe_get_update_active_version(&self) -> Result<Value> {
-            self.next_response(RecordedRpcCall::OutbeGetUpdateActiveVersion)?
-                .into_value("outbe_getUpdateActiveVersion")
-        }
-
-        async fn outbe_get_update_scheduled_update(
-            &self,
-            proposal_id: U256,
-        ) -> Result<Option<Value>> {
-            let value = self
-                .next_response(RecordedRpcCall::OutbeGetUpdateScheduledUpdate { proposal_id })?
-                .into_value("outbe_getUpdateScheduledUpdate")?;
-            if value.is_null() {
-                Ok(None)
-            } else {
-                Ok(Some(value))
-            }
-        }
-
-        async fn outbe_list_update_waiting_for_activation(&self) -> Result<Value> {
-            self.next_response(RecordedRpcCall::OutbeListUpdateWaitingForActivation)?
-                .into_value("outbe_listUpdateWaitingForActivation")
         }
 
         async fn eth_get_logs(

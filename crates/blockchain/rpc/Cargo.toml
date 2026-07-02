@@ -16,7 +16,6 @@ outbe-validatorset.workspace = true
 outbe-staking.workspace = true
 outbe-rewards.workspace = true
 outbe-slashindicator.workspace = true
-outbe-update.workspace = true
 
 # Reth
 reth-ethereum = { workspace = true, features = ["storage-api"] }
@@ -32,6 +31,13 @@ hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 eyre.workspace = true
+
+[dev-dependencies]
+outbe-primitives = { workspace = true, features = ["test-utils"] }
+outbe-update.workspace = true
+outbe-vote.workspace = true
+alloy-sol-types.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
