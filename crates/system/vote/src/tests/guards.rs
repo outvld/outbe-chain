@@ -3,11 +3,16 @@ use alloy_primitives::{address, Address, U256};
 use outbe_primitives::error::PrecompileError;
 
 use crate::constants::{MAX_PENDING_PROPOSALS, MAX_PENDING_PROPOSALS_PER_VALIDATOR};
+use crate::api::get_proposal;
 use crate::schema::ProposalStatus;
 use crate::schema::Vote;
+use crate::state::{active_validator_addresses, calculate_vote_tally, VoteTally};
 use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 
-use super::{register_active_validator, with_vote, VoteTestExt, PROPOSER, VOTER_A, VOTER_B};
+use super::{
+    register_active_validator, register_pending_validator, with_vote, VoteTestExt, PENDING_VOTER,
+    PROPOSER, VOTER_A, VOTER_B,
+};
 
 const OUTSIDER: Address = address!("0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead");
 
@@ -56,8 +61,87 @@ fn cast_vote_rejects_non_validator() {
             .unwrap_err();
         assert!(matches!(
             err,
+            PrecompileError::Revert(msg) if msg.contains("not an eligible validator")
+        ));
+    });
+}
+
+#[test]
+fn pending_validator_can_cast_vote() {
+    with_vote(|storage| {
+        register_pending_validator(storage.clone(), PENDING_VOTER, 4);
+        let mut vote = Vote::new(storage.clone());
+        let current = 50u64;
+        let proposal_id = vote
+            .create_proposal(
+                PROPOSER,
+                UPDATE_TARGET_MODULE,
+                SCHEDULE_UPDATE_ACTION,
+                b"",
+                current,
+            )
+            .unwrap();
+
+        vote.cast_vote_approve(proposal_id, PENDING_VOTER, true, current + 1)
+            .unwrap();
+
+        assert_eq!(
+            vote.read_proposal_voters(proposal_id).unwrap(),
+            vec![PENDING_VOTER]
+        );
+    });
+}
+
+#[test]
+fn pending_validator_cannot_create_proposal() {
+    with_vote(|storage| {
+        register_pending_validator(storage.clone(), PENDING_VOTER, 4);
+        let mut vote = Vote::new(storage.clone());
+        let err = vote
+            .create_proposal(
+                PENDING_VOTER,
+                UPDATE_TARGET_MODULE,
+                SCHEDULE_UPDATE_ACTION,
+                b"",
+                10,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            err,
             PrecompileError::Revert(msg) if msg.contains("not an active validator")
         ));
+    });
+}
+
+#[test]
+fn pending_vote_is_stored_but_excluded_from_active_tally() {
+    with_vote(|storage| {
+        register_pending_validator(storage.clone(), PENDING_VOTER, 4);
+        let mut vote = Vote::new(storage.clone());
+        let current = 60u64;
+        let proposal_id = vote
+            .create_proposal(
+                PROPOSER,
+                UPDATE_TARGET_MODULE,
+                SCHEDULE_UPDATE_ACTION,
+                b"",
+                current,
+            )
+            .unwrap();
+
+        vote.cast_vote_approve(proposal_id, PENDING_VOTER, true, current + 1)
+            .unwrap();
+        vote.cast_vote_approve(proposal_id, VOTER_A, true, current + 2)
+            .unwrap();
+
+        let record = vote.proposals.get(proposal_id).unwrap().unwrap();
+        let active = active_validator_addresses(storage.clone()).unwrap();
+        let tally = calculate_vote_tally(&vote, &record, &active).unwrap();
+        assert_eq!(tally, VoteTally { yes: 1, no: 0 });
+
+        let info = get_proposal(storage, proposal_id).unwrap().unwrap();
+        assert_eq!(info.state, VoteTally { yes: 1, no: 0 });
+        assert_eq!(info.voters_count, 2);
     });
 }
 

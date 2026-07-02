@@ -5,6 +5,7 @@ use outbe_primitives::error::{PrecompileError, Result};
 use outbe_primitives::storage::hashmap::HashMapStorageProvider;
 use outbe_primitives::storage::StorageHandle;
 use outbe_validatorset::contract::ValidatorSet;
+use outbe_validatorset::logic::status;
 
 use crate::api::{get_proposal, get_proposal_voters, list_proposals, list_proposals_by_status};
 use outbe_update::constants::MIN_ACTIVATION_BUFFER;
@@ -22,6 +23,7 @@ use crate::targets::{SCHEDULE_UPDATE_ACTION, UPDATE_TARGET_MODULE};
 pub(super) const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
 pub(super) const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
 pub(super) const VOTER_B: Address = address!("0x3333333333333333333333333333333333333333");
+pub(super) const PENDING_VOTER: Address = address!("0x4444444444444444444444444444444444444444");
 pub(super) const VALIDATOR_OWNER: Address = address!("0xffffffffffffffffffffffffffffffffffffffff");
 
 mod dispatch;
@@ -41,6 +43,20 @@ pub(super) fn register_active_validator(storage: StorageHandle, addr: Address, s
     vs.register_validator(VALIDATOR_OWNER, addr, &dummy_pubkey(seed))
         .unwrap();
     vs.activate_validator(addr).unwrap();
+}
+
+pub(super) fn register_pending_validator(storage: StorageHandle, addr: Address, seed: u8) {
+    let mut vs = ValidatorSet::new(storage.clone());
+    vs.config_owner.write(VALIDATOR_OWNER).unwrap();
+    vs.config_max_validators.write(100).unwrap();
+    vs.register_validator(VALIDATOR_OWNER, addr, &dummy_pubkey(seed))
+        .unwrap();
+    vs.mark_pending(addr).unwrap();
+    assert_eq!(
+        vs.val_status.read(&addr).unwrap(),
+        status::PENDING,
+        "fixture must leave validator in PENDING status"
+    );
 }
 
 pub(super) fn setup_default_validators(storage: StorageHandle) {

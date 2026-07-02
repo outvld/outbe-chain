@@ -5,6 +5,8 @@ use outbe_primitives::error::PrecompileError;
 pub enum VoteError {
     #[error("caller is not an active validator")]
     NotValidator,
+    #[error("caller is not an eligible validator")]
+    NotEligibleValidator,
     #[error("proposal not found")]
     ProposalNotFound,
     #[error("proposal is not pending")]

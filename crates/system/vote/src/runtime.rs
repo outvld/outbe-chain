@@ -24,6 +24,18 @@ pub fn ensure_active_validator(storage: StorageHandle<'_>, caller: Address) -> R
     Ok(())
 }
 
+/// Returns `Ok(())` when `caller` is a registered validator with `status ∈ {PENDING, ACTIVE}`.
+pub fn ensure_voting_validator(storage: StorageHandle<'_>, caller: Address) -> Result<()> {
+    let vs = ValidatorSet::new(storage);
+    if !matches!(
+        vs.get_validator(caller)?,
+        Some(record) if record.status == status::ACTIVE || record.status == status::PENDING
+    ) {
+        return Err(VoteError::NotEligibleValidator.into());
+    }
+    Ok(())
+}
+
 /// Returns `true` when `yes_votes` reaches the configured 2/3 quorum.
 pub const fn quorum_reached(yes_votes: u64, active_validator_count: u32) -> bool {
     if active_validator_count == 0 {
@@ -86,7 +98,7 @@ impl Vote<'_> {
         approve: bool,
         block_number: u64,
     ) -> Result<()> {
-        ensure_active_validator(self.storage.clone(), voter)?;
+        ensure_voting_validator(self.storage.clone(), voter)?;
 
         let proposal = self
             .proposals
