@@ -27,6 +27,8 @@ pub enum VoteError {
     InvalidPayload,
     #[error("unknown vote target module")]
     UnknownTargetModule,
+    #[error("duplicate vote target module handler")]
+    DuplicateTargetModule,
 }
 
 impl From<VoteError> for PrecompileError {

@@ -6,62 +6,93 @@ use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::{PrecompileError, Result};
 
 use crate::api::get_active_version;
-use crate::handlers::{UpgradeHandlerRegistry, UpgradeHandlerSpec, EMPTY_UPGRADE_HANDLER_REGISTRY};
+use crate::handlers::{UpgradeHandler, UpgradeHandlerRegistry};
 use crate::schema::ScheduledUpdateStatus;
 use crate::schema::Update;
 use crate::state::ScheduledUpdateInfo;
+use crate::ProtocolVersion;
 
 use super::{block_ctx, min_activation, schedule_update, with_update, with_update_provider, V1_2};
+
+static EMPTY_UPGRADE_HANDLER_REGISTRY: UpgradeHandlerRegistry = UpgradeHandlerRegistry::new(&[]);
 
 static REGISTERED_HANDLER_CALLS: AtomicUsize = AtomicUsize::new(0);
 static REPLAY_HANDLER_CALLS: AtomicUsize = AtomicUsize::new(0);
 
-fn registered_counting_handler(
-    _ctx: &BlockRuntimeContext,
-    _scheduled: &ScheduledUpdateInfo,
-) -> Result<()> {
-    REGISTERED_HANDLER_CALLS.fetch_add(1, Ordering::SeqCst);
-    Ok(())
+struct RegisteredCountingHandler;
+
+impl UpgradeHandler for RegisteredCountingHandler {
+    fn version(&self) -> ProtocolVersion {
+        V1_2
+    }
+
+    fn label(&self) -> &'static str {
+        "registered_counting_handler"
+    }
+
+    fn handle(
+        &self,
+        _ctx: &BlockRuntimeContext,
+        _scheduled: &ScheduledUpdateInfo,
+    ) -> Result<()> {
+        REGISTERED_HANDLER_CALLS.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
 }
 
-fn replay_counting_handler(
-    _ctx: &BlockRuntimeContext,
-    _scheduled: &ScheduledUpdateInfo,
-) -> Result<()> {
-    REPLAY_HANDLER_CALLS.fetch_add(1, Ordering::SeqCst);
-    Ok(())
+struct ReplayCountingHandler;
+
+impl UpgradeHandler for ReplayCountingHandler {
+    fn version(&self) -> ProtocolVersion {
+        V1_2
+    }
+
+    fn label(&self) -> &'static str {
+        "replay_counting_handler"
+    }
+
+    fn handle(
+        &self,
+        _ctx: &BlockRuntimeContext,
+        _scheduled: &ScheduledUpdateInfo,
+    ) -> Result<()> {
+        REPLAY_HANDLER_CALLS.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
 }
 
-fn failing_handler(_ctx: &BlockRuntimeContext, _scheduled: &ScheduledUpdateInfo) -> Result<()> {
-    Err(PrecompileError::Fatal("handler failed".into()))
+struct FailingHandler;
+
+impl UpgradeHandler for FailingHandler {
+    fn version(&self) -> ProtocolVersion {
+        V1_2
+    }
+
+    fn label(&self) -> &'static str {
+        "failing_handler"
+    }
+
+    fn handle(
+        &self,
+        _ctx: &BlockRuntimeContext,
+        _scheduled: &ScheduledUpdateInfo,
+    ) -> Result<()> {
+        Err(PrecompileError::Fatal("handler failed".into()))
+    }
 }
 
-static REGISTERED_HANDLER_SPEC: UpgradeHandlerSpec = UpgradeHandlerSpec {
-    version: Some(V1_2),
-    label: "registered_counting_handler",
-    handler: registered_counting_handler,
-};
-
-static REPLAY_HANDLER_SPEC: UpgradeHandlerSpec = UpgradeHandlerSpec {
-    version: Some(V1_2),
-    label: "replay_counting_handler",
-    handler: replay_counting_handler,
-};
-
-static FAILING_HANDLER_SPEC: UpgradeHandlerSpec = UpgradeHandlerSpec {
-    version: Some(V1_2),
-    label: "failing_handler",
-    handler: failing_handler,
-};
+static REGISTERED_COUNTING_HANDLER: RegisteredCountingHandler = RegisteredCountingHandler;
+static REPLAY_COUNTING_HANDLER: ReplayCountingHandler = ReplayCountingHandler;
+static FAILING_HANDLER: FailingHandler = FailingHandler;
 
 static REGISTERED_HANDLER_REGISTRY: UpgradeHandlerRegistry =
-    UpgradeHandlerRegistry::new(&[REGISTERED_HANDLER_SPEC]);
+    UpgradeHandlerRegistry::new(&[&REGISTERED_COUNTING_HANDLER]);
 
 static REPLAY_HANDLER_REGISTRY: UpgradeHandlerRegistry =
-    UpgradeHandlerRegistry::new(&[REPLAY_HANDLER_SPEC]);
+    UpgradeHandlerRegistry::new(&[&REPLAY_COUNTING_HANDLER]);
 
 static FAILING_HANDLER_REGISTRY: UpgradeHandlerRegistry =
-    UpgradeHandlerRegistry::new(&[FAILING_HANDLER_SPEC]);
+    UpgradeHandlerRegistry::new(&[&FAILING_HANDLER]);
 
 #[test]
 fn activation_without_handler_succeeds() {

@@ -434,12 +434,15 @@ pub fn run_outbe_pre_execution_hooks(
     }
 
     // Vote: tally expired proposals and dispatch approved ones.
-    <outbe_vote::lifecycle::VoteLifecycle as BlockLifecycle>::begin_block(hook_ctx)?;
+    outbe_vote::lifecycle::VoteLifecycle::begin_block_with_handlers(
+        hook_ctx,
+        crate::handlers::vote::registry(),
+    )?;
 
     // Update: activate scheduled updates at activation height.
     outbe_update::lifecycle::UpdateLifecycle::begin_block_with_handlers(
         hook_ctx,
-        crate::upgrade_handlers::registry(),
+        crate::handlers::update::registry(),
     )?;
 
     // EmissionLimit no longer participates in pre-execution lifecycle.

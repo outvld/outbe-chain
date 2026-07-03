@@ -9,16 +9,67 @@ use outbe_validatorset::contract::ValidatorSet;
 use outbe_validatorset::logic::status;
 
 use crate::api::{get_proposal, get_proposal_voters, list_proposals, list_proposals_by_status};
-use outbe_update::constants::MIN_ACTIVATION_BUFFER;
-use outbe_update::encode_protocol_version;
-use outbe_update::payload::encode_schedule_update_json;
-use outbe_update::ProtocolVersion;
-
 use crate::constants::VOTING_WINDOW_BLOCKS;
+use crate::errors::VoteError;
+use crate::handlers::{VoteTarget, VoteTargetRegistry};
 use crate::runtime::quorum_reached;
 use crate::schema::ProposalStatus;
 use crate::schema::Vote;
 use crate::state::{calculate_vote_tally, vote_key, VoteKind, VoteTally};
+use outbe_update::constants::MIN_ACTIVATION_BUFFER;
+use outbe_update::encode_protocol_version;
+use outbe_update::payload::encode_schedule_update_json;
+use outbe_update::ProtocolVersion;
+use serde_json::Value;
+
+struct TestUpdateVoteTarget;
+
+impl VoteTarget for TestUpdateVoteTarget {
+    fn target_module(&self) -> Address {
+        UPDATE_ADDRESS
+    }
+
+    fn validate(&self, payload: &Value, _current_height: u64) -> Result<()> {
+        if payload.is_object() {
+            Ok(())
+        } else {
+            Err(VoteError::InvalidPayload.into())
+        }
+    }
+
+    fn handle_approved(
+        &self,
+        _ctx: &BlockRuntimeContext,
+        _proposal_id: U256,
+        _payload: &Value,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
+static TEST_UPDATE_VOTE_TARGET: TestUpdateVoteTarget = TestUpdateVoteTarget;
+static TEST_VOTE_HANDLERS: &[&dyn VoteTarget] = &[&TEST_UPDATE_VOTE_TARGET];
+static TEST_VOTE_REGISTRY: VoteTargetRegistry = VoteTargetRegistry::new(TEST_VOTE_HANDLERS);
+
+pub(super) fn test_vote_registry() -> &'static VoteTargetRegistry {
+    &TEST_VOTE_REGISTRY
+}
+
+pub(super) fn create_proposal_test(
+    vote: &mut Vote<'_>,
+    proposer: Address,
+    target_module: Address,
+    payload: &str,
+    current_height: u64,
+) -> Result<U256> {
+    vote.create_proposal(
+        proposer,
+        target_module,
+        payload,
+        current_height,
+        test_vote_registry(),
+    )
+}
 
 pub(super) const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
 pub(super) const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
@@ -26,7 +77,6 @@ pub(super) const VOTER_B: Address = address!("0x33333333333333333333333333333333
 pub(super) const PENDING_VOTER: Address = address!("0x4444444444444444444444444444444444444444");
 pub(super) const VALIDATOR_OWNER: Address = address!("0xffffffffffffffffffffffffffffffffffffffff");
 
-mod dispatch;
 mod guards;
 mod precompile;
 
@@ -103,7 +153,7 @@ pub(super) trait VoteTestExt {
 impl VoteTestExt for Vote<'_> {
     fn process_begin_block_test(&mut self, block_number: u64) -> Result<()> {
         let ctx = block_ctx(self.storage.clone(), block_number);
-        self.process_begin_block(&ctx)
+        self.process_begin_block(&ctx, test_vote_registry())
     }
 }
 
@@ -156,14 +206,14 @@ fn write_vote_appends_ordered_voters() {
     with_vote(|storage| {
         let mut governance = Vote::new(storage.clone());
         let current = 10u64;
-        let proposal_id = governance
-            .create_proposal(
-                PROPOSER,
-                UPDATE_ADDRESS,
-                &empty_update_payload(current),
-                current,
-            )
-            .unwrap();
+        let proposal_id = create_proposal_test(
+            &mut governance,
+            PROPOSER,
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
+            current,
+        )
+        .unwrap();
 
         governance
             .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
@@ -202,14 +252,14 @@ fn duplicate_vote_is_rejected() {
     with_vote(|storage| {
         let mut governance = Vote::new(storage.clone());
         let current = 20u64;
-        let proposal_id = governance
-            .create_proposal(
-                PROPOSER,
-                UPDATE_ADDRESS,
-                &empty_update_payload(current),
-                current,
-            )
-            .unwrap();
+        let proposal_id = create_proposal_test(
+            &mut governance,
+            PROPOSER,
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
+            current,
+        )
+        .unwrap();
 
         governance
             .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
@@ -235,14 +285,14 @@ fn get_proposal_voters_pagination_is_deterministic() {
     with_vote(|storage| {
         let mut governance = Vote::new(storage.clone());
         let current = 30u64;
-        let proposal_id = governance
-            .create_proposal(
-                PROPOSER,
-                UPDATE_ADDRESS,
-                &empty_update_payload(current),
-                current,
-            )
-            .unwrap();
+        let proposal_id = create_proposal_test(
+            &mut governance,
+            PROPOSER,
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
+            current,
+        )
+        .unwrap();
 
         governance
             .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
@@ -278,14 +328,14 @@ fn get_proposal_uses_active_set_at_read_time() {
     with_vote(|storage| {
         let mut governance = Vote::new(storage.clone());
         let current = 40u64;
-        let proposal_id = governance
-            .create_proposal(
-                PROPOSER,
-                UPDATE_ADDRESS,
-                &empty_update_payload(current),
-                current,
-            )
-            .unwrap();
+        let proposal_id = create_proposal_test(
+            &mut governance,
+            PROPOSER,
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
+            current,
+        )
+        .unwrap();
 
         governance
             .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
@@ -317,14 +367,9 @@ fn inactive_voter_is_ignored_at_deadline_tally() {
         let version = encode_protocol_version(1, 2);
         let activation = deadline.saturating_add(MIN_ACTIVATION_BUFFER);
         let payload = update_json_payload(version, activation, "");
-        let proposal_id = governance
-            .create_proposal(
-                PROPOSER,
-                UPDATE_ADDRESS,
-                &payload,
-                current,
-            )
-            .unwrap();
+        let proposal_id =
+            create_proposal_test(&mut governance, PROPOSER, UPDATE_ADDRESS, &payload, current)
+                .unwrap();
 
         governance
             .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
@@ -362,14 +407,14 @@ fn deadline_quorum_requires_two_thirds_of_active_set() {
     with_vote(|storage| {
         let mut governance = Vote::new(storage.clone());
         let current = 200u64;
-        let proposal_id = governance
-            .create_proposal(
-                PROPOSER,
-                UPDATE_ADDRESS,
-                &empty_update_payload(current),
-                current,
-            )
-            .unwrap();
+        let proposal_id = create_proposal_test(
+            &mut governance,
+            PROPOSER,
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
+            current,
+        )
+        .unwrap();
 
         governance
             .cast_vote_approve(proposal_id, VOTER_A, true, current + 1)
@@ -388,22 +433,22 @@ fn list_proposals_and_by_status_are_paginated() {
     with_vote(|storage| {
         let mut governance = Vote::new(storage.clone());
         let current = 300u64;
-        let first = governance
-            .create_proposal(
-                PROPOSER,
-                UPDATE_ADDRESS,
-                &empty_update_payload(current),
-                current,
-            )
-            .unwrap();
-        let second = governance
-            .create_proposal(
-                VOTER_A,
-                UPDATE_ADDRESS,
-                &empty_update_payload(current + 1),
-                current + 1,
-            )
-            .unwrap();
+        let first = create_proposal_test(
+            &mut governance,
+            PROPOSER,
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
+            current,
+        )
+        .unwrap();
+        let second = create_proposal_test(
+            &mut governance,
+            VOTER_A,
+            UPDATE_ADDRESS,
+            &empty_update_payload(current + 1),
+            current + 1,
+        )
+        .unwrap();
 
         assert_eq!(
             list_proposals(storage.clone(), U256::ZERO, U256::from(10)).unwrap(),

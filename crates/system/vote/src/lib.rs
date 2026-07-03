@@ -18,14 +18,14 @@ pub mod precompile;
 pub mod runtime;
 pub mod schema;
 pub mod state;
-pub mod targets;
+pub mod handlers;
 
 pub use schema::Vote;
 pub use state::{
     active_validator_addresses, calculate_vote_tally, ProposalInfo, ProposalStatus, VoteInfo,
     VoteKind, VoteTally,
 };
-pub use targets::VoteTarget;
+pub use handlers::{VoteTarget, VoteTargetHandlers, VoteTargetRegistry};
 
 #[cfg(test)]
 mod tests;

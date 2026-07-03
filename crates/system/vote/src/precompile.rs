@@ -9,6 +9,7 @@ use outbe_primitives::storage::StorageHandle;
 
 use crate::api::{get_proposal, get_proposal_voters, list_proposals, list_proposals_by_status};
 use crate::errors::VoteError;
+use crate::handlers::VoteTargetRegistry;
 use crate::schema::Vote;
 use crate::state::{ProposalInfo, ProposalStatus, VoteTally};
 
@@ -18,15 +19,16 @@ sol!(
 );
 
 /// Dispatches an ABI-encoded call to the Vote precompile.
-pub fn dispatch(
+pub fn dispatch_with_handlers(
     storage: StorageHandle<'_>,
     data: &[u8],
     caller: Address,
     value: U256,
+    registry: &VoteTargetRegistry,
 ) -> Result<Bytes> {
     reject_value(&value)?;
     dispatch_call(data, IVote::IVoteCalls::abi_decode, |call| {
-        dispatch_vote_call(storage, call, caller)
+        dispatch_vote_call(storage, call, caller, registry)
     })
 }
 
@@ -34,13 +36,20 @@ fn dispatch_vote_call(
     storage: StorageHandle<'_>,
     call: IVote::IVoteCalls,
     caller: Address,
+    registry: &VoteTargetRegistry,
 ) -> Result<Bytes> {
     let mut governance = Vote::new(storage.clone());
     use IVote::IVoteCalls::*;
     match call {
         createProposal(c) => mutate(c, caller, |sender, c| {
             let block_number = storage.block_number()?;
-            governance.create_proposal(sender, c.targetModule, &c.payload, block_number)
+            governance.create_proposal(
+                sender,
+                c.targetModule,
+                &c.payload,
+                block_number,
+                registry,
+            )
         }),
         castVote(c) => mutate_void(c, caller, |sender, c| {
             let block_number = storage.block_number()?;

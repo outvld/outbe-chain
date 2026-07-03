@@ -58,7 +58,20 @@ type BaseGasFn = fn(&[u8]) -> u64;
 fn default_base_gas(_input: &[u8]) -> u64 {
     PRECOMPILE_BASE_GAS
 }
-
+fn vote_dispatch(
+    storage: StorageHandle,
+    data: &[u8],
+    caller: Address,
+    value: alloy_primitives::U256,
+) -> outbe_primitives::error::Result<Bytes> {
+    outbe_vote::precompile::dispatch_with_handlers(
+        storage,
+        data,
+        caller,
+        value,
+        crate::handlers::vote::registry(),
+    )
+}
 /// Resolve outbe address to its dispatch entrypoint. Single source of truth
 /// for the registered outbe stateful-precompile table.
 fn outbe_dispatch_fn(address: &Address) -> Option<(&'static str, DispatchFn, BaseGasFn)> {
@@ -207,7 +220,7 @@ fn outbe_dispatch_fn(address: &Address) -> Option<(&'static str, DispatchFn, Bas
             outbe_teeregistry::precompile::dispatch,
             default_base_gas,
         ),
-        a if a == VOTE_ADDRESS => ("vote", outbe_vote::precompile::dispatch, default_base_gas),
+        a if a == VOTE_ADDRESS => ("vote", vote_dispatch, default_base_gas),
         a if a == UPDATE_ADDRESS => (
             "update",
             outbe_update::precompile::dispatch,

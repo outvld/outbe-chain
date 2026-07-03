@@ -23,7 +23,7 @@ pub fn warn_missing_handlers_for_waiting_updates(
     registry: &UpgradeHandlerRegistry,
 ) {
     for scheduled in waiting {
-        if registry.lookup(scheduled.version).is_none() {
+        if registry.lookup(scheduled.version).next().is_none() {
             tracing::warn!(
                 proposal_id = %scheduled.proposal_id,
                 version = %format_protocol_version(scheduled.version),

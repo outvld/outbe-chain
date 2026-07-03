@@ -8,37 +8,41 @@ use outbe_primitives::error::Result;
 use crate::state::ScheduledUpdateInfo;
 use crate::ProtocolVersion;
 
-/// Migration invoked when a scheduled update reaches its activation height.
-pub type UpgradeHandler = fn(&BlockRuntimeContext, &ScheduledUpdateInfo) -> Result<()>;
+/// Static handler table entry type.
+pub type UpgradeHandlers = &'static [&'static dyn UpgradeHandler];
 
-/// Static registration entry for one protocol version migration.
-#[derive(Clone, Copy)]
-pub struct UpgradeHandlerSpec {
-    /// If version is `None`, the handler is invoked for all versions.
-    pub version: Option<ProtocolVersion>,
-    pub label: &'static str,
-    pub handler: UpgradeHandler,
+/// Migration invoked when a scheduled update reaches its activation height.
+pub trait UpgradeHandler: Send + Sync {
+    /// The protocol version which should trigger this handler.
+    fn version(&self) -> ProtocolVersion;
+
+    /// A human-readable label for the handler.
+    fn label(&self) -> &'static str;
+
+    /// The handler logic.
+    fn handle(&self, ctx: &BlockRuntimeContext, scheduled: &ScheduledUpdateInfo) -> Result<()>;
 }
 
 /// Read-only view over a compile-time handler table.
 #[derive(Clone, Copy)]
 pub struct UpgradeHandlerRegistry {
-    handlers: &'static [UpgradeHandlerSpec],
+    handlers: UpgradeHandlers,
 }
 
 impl UpgradeHandlerRegistry {
     /// Builds a registry from a static handler table.
-    pub const fn new(handlers: &'static [UpgradeHandlerSpec]) -> Self {
+    pub const fn new(handlers: UpgradeHandlers) -> Self {
         Self { handlers }
     }
 
-    /// Returns the handler registered for `version`, if any.
-    pub fn lookup(&self, version: ProtocolVersion) -> Option<&UpgradeHandlerSpec> {
+    /// Returns all handlers registered for `version`.
+    pub fn lookup(
+        &self,
+        version: ProtocolVersion,
+    ) -> impl Iterator<Item = &'static dyn UpgradeHandler> {
         self.handlers
             .iter()
-            .find(|spec| spec.version.map_or(true, |v| v == version))
+            .copied()
+            .filter(move |handler| handler.version() == version)
     }
 }
-
-/// Default empty registry for tests and no-migration activation paths.
-pub const EMPTY_UPGRADE_HANDLER_REGISTRY: UpgradeHandlerRegistry = UpgradeHandlerRegistry::new(&[]);

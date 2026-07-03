@@ -8,10 +8,12 @@ publish.workspace = true
 [dependencies]
 outbe-macros.workspace = true
 outbe-primitives.workspace = true
-outbe-update.workspace = true
 outbe-validatorset.workspace = true
 alloy-primitives.workspace = true
 alloy-sol-types.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+outbe-update.workspace = true

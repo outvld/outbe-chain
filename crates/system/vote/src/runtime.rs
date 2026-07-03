@@ -13,7 +13,7 @@ use crate::errors::VoteError;
 use crate::notify::ProposalFinalization;
 use crate::schema::Vote;
 use crate::state::{active_validator_addresses, calculate_vote_tally, ProposalStatus, VoteKind};
-use crate::targets;
+use crate::handlers::{self, VoteTargetRegistry};
 
 const LOCALNET_CHAIN_ID: u64 = 54_322_345;
 
@@ -68,6 +68,7 @@ impl Vote<'_> {
         target_module: Address,
         payload: &str,
         current_height: u64,
+        registry: &VoteTargetRegistry,
     ) -> Result<U256> {
         let chain_id = self.storage.chain_id()?;
         ensure_active_validator(self.storage.clone(), proposer)?;
@@ -82,7 +83,7 @@ impl Vote<'_> {
             return Err(VoteError::TooManyPendingByValidator.into());
         }
 
-        targets::validate_target_payload(target_module, payload, current_height)?;
+        handlers::validate_target_payload(registry, target_module, payload, current_height)?;
 
         let voting_deadline = current_height.saturating_add(voting_window_blocks(chain_id));
         let proposal_id = self.write_proposal(
@@ -142,7 +143,11 @@ impl Vote<'_> {
     ///
     /// Transitions `Pending` -> `Approved` | `Rejected` | `Expired`. Dispatches the
     /// terminal outcome to the registered target-module handler in the same pass.
-    pub fn process_begin_block(&mut self, ctx: &BlockRuntimeContext) -> Result<()> {
+    pub fn process_begin_block(
+        &mut self,
+        ctx: &BlockRuntimeContext,
+        registry: &VoteTargetRegistry,
+    ) -> Result<()> {
         let block_number = ctx.block.block_number;
         let pending_ids = self.list_pending_proposal_ids()?;
         for proposal_id in pending_ids {
@@ -152,13 +157,18 @@ impl Vote<'_> {
             if proposal.proposal_status()? == ProposalStatus::Pending
                 && block_number > proposal.voting_deadline_height
             {
-                self.finalize_voting(ctx, proposal_id)?;
+                self.finalize_voting(ctx, proposal_id, registry)?;
             }
         }
         Ok(())
     }
 
-    fn finalize_voting(&mut self, ctx: &BlockRuntimeContext, proposal_id: U256) -> Result<()> {
+    fn finalize_voting(
+        &mut self,
+        ctx: &BlockRuntimeContext,
+        proposal_id: U256,
+        registry: &VoteTargetRegistry,
+    ) -> Result<()> {
         let proposal = self
             .proposals
             .get(proposal_id)?
@@ -179,7 +189,8 @@ impl Vote<'_> {
             ProposalStatus::Expired
         };
 
-        let outcome = match targets::handle_target_tally(ctx, proposal_id, &proposal, status) {
+        let outcome = match handlers::handle_target_tally(registry, ctx, proposal_id, &proposal, status)
+        {
             Ok(()) => {
                 self.set_proposal_status(proposal_id, status)?;
                 match status {

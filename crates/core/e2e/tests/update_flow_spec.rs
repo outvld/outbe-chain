@@ -7,12 +7,12 @@ use alloy_primitives::{address, Address, B256, Log, U256};
 use alloy_sol_types::{SolCall, SolEvent};
 
 use outbe_evm::executor::run_outbe_pre_execution_hooks;
+use outbe_evm::handlers;
 use outbe_primitives::addresses::UPDATE_ADDRESS;
 use outbe_primitives::hook_events::partition_hook_events;
 use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
 use outbe_primitives::error::PrecompileError;
 use outbe_primitives::storage::{hashmap::HashMapStorageProvider, StorageHandle};
-use outbe_update::handlers::EMPTY_UPGRADE_HANDLER_REGISTRY;
 use outbe_update::lifecycle::UpdateLifecycle;
 use outbe_update::precompile::{dispatch, IUpdate};
 use outbe_update::schema::Update;
@@ -22,6 +22,7 @@ use outbe_update::{encode_protocol_version, ProtocolVersion};
 use serde_json::Value;
 use outbe_validatorset::contract::ValidatorSet;
 use outbe_vote::constants::VOTING_WINDOW_BLOCKS;
+use outbe_vote::lifecycle::VoteLifecycle;
 use outbe_vote::schema::ProposalStatus;
 use outbe_vote::schema::Vote;
 
@@ -125,14 +126,13 @@ fn schedule_update(
 
 fn run_vote_begin_block(storage: StorageHandle, block_number: u64) {
     let ctx = block_ctx(storage, block_number);
-    Vote::new(ctx.storage.clone())
-        .process_begin_block(&ctx)
+    VoteLifecycle::begin_block_with_handlers(&ctx, handlers::vote::registry())
         .expect("vote begin block should succeed");
 }
 
 fn run_update_begin_block(storage: StorageHandle, block_number: u64) {
     let ctx = block_ctx(storage, block_number);
-    UpdateLifecycle::begin_block_with_handlers(&ctx, &EMPTY_UPGRADE_HANDLER_REGISTRY)
+    UpdateLifecycle::begin_block_with_handlers(&ctx, handlers::update::registry())
         .expect("update begin block should succeed");
 }
 
@@ -175,7 +175,13 @@ fn create_update_proposal_from(
     current: u64,
 ) -> U256 {
     let payload = encode_schedule_update_json(version, activation, "");
-    vote.create_proposal(proposer, UPDATE_ADDRESS, &payload, current)
+    vote.create_proposal(
+        proposer,
+        UPDATE_ADDRESS,
+        &payload,
+        current,
+        handlers::vote::registry(),
+    )
     .unwrap()
 }
 
@@ -516,6 +522,7 @@ fn executor_runs_vote_before_update() {
             UPDATE_ADDRESS,
             &encode_schedule_update_json(V1_3, proposal_activation, ""),
             created,
+            handlers::vote::registry(),
         )
         .unwrap();
     for (voter, off) in [(VOTER_A, 1), (VOTER_B, 2), (VOTER_C, 3)] {

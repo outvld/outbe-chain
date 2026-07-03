@@ -113,12 +113,12 @@ impl Update<'_> {
         }
 
         ctx.with_checkpoint(|| {
-            if let Some(spec) = registry.lookup(scheduled.version) {
-                (spec.handler)(ctx, &scheduled).map_err(|err| match err {
+            for handler in registry.lookup(scheduled.version) {
+                handler.handle(ctx, &scheduled).map_err(|err| match err {
                     PrecompileError::Fatal(message) => PrecompileError::Fatal(message),
                     other => PrecompileError::Fatal(format!(
                         "upgrade handler '{}' failed: {other}",
-                        spec.label
+                        handler.label()
                     )),
                 })?;
             }

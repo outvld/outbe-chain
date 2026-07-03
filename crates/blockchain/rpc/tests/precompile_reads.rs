@@ -15,7 +15,8 @@ use outbe_update::payload::encode_schedule_update_json;
 use outbe_update::precompile::{dispatch as dispatch_update, IUpdate};
 use outbe_update::schema::Update;
 use outbe_update::{encode_protocol_version, ProtocolVersion};
-use outbe_vote::precompile::{dispatch as dispatch_vote, IVote};
+use outbe_vote::handlers::VoteTargetRegistry;
+use outbe_vote::precompile::{dispatch_with_handlers, IVote};
 use outbe_vote::schema::Vote;
 use outbe_vote::state::ProposalStatus;
 use serde_json::Value;
@@ -23,6 +24,8 @@ use serde_json::Value;
 const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
 const V1_2: ProtocolVersion = encode_protocol_version(1, 2);
 const V1_3: ProtocolVersion = encode_protocol_version(1, 3);
+
+static EMPTY_VOTE_TARGET_REGISTRY: VoteTargetRegistry = VoteTargetRegistry::new(&[]);
 
 fn min_activation(current: u64) -> u64 {
     current.saturating_add(MIN_ACTIVATION_BUFFER)
@@ -35,22 +38,18 @@ fn with_storage<F: FnOnce(StorageHandle<'_>)>(f: F) {
 }
 
 fn eth_call_update(storage: StorageHandle<'_>, data: &[u8]) -> Vec<u8> {
-    dispatch_update(
-        storage,
-        data,
-        Address::ZERO,
-        U256::ZERO,
-    )
-    .expect("update precompile eth_call should succeed")
-    .into()
+    dispatch_update(storage, data, Address::ZERO, U256::ZERO)
+        .expect("update precompile eth_call should succeed")
+        .into()
 }
 
 fn eth_call_vote(storage: StorageHandle<'_>, data: &[u8]) -> Vec<u8> {
-    dispatch_vote(
+    dispatch_with_handlers(
         storage,
         data,
         Address::ZERO,
         U256::ZERO,
+        &EMPTY_VOTE_TARGET_REGISTRY,
     )
     .expect("vote precompile eth_call should succeed")
     .into()
@@ -77,8 +76,14 @@ fn schedule_update(
 
 #[test]
 fn precompile_addresses_match_eth_call_targets() {
-    assert_eq!(UPDATE_ADDRESS, address!("0x000000000000000000000000000000000000EE0B"));
-    assert_eq!(VOTE_ADDRESS, address!("0x000000000000000000000000000000000000EE0C"));
+    assert_eq!(
+        UPDATE_ADDRESS,
+        address!("0x000000000000000000000000000000000000EE0B")
+    );
+    assert_eq!(
+        VOTE_ADDRESS,
+        address!("0x000000000000000000000000000000000000EE0C")
+    );
 }
 
 #[test]
@@ -129,10 +134,7 @@ fn eth_call_get_update_scheduled_update() {
         assert_eq!(scheduled.version, V1_2.raw());
         assert_eq!(scheduled.activationHeight, min_activation(current));
         assert_eq!(scheduled.info.as_ref(), b"release-notes");
-        assert_eq!(
-            scheduled.status,
-            IUpdate::ScheduledUpdateStatus::Scheduled
-        );
+        assert_eq!(scheduled.status, IUpdate::ScheduledUpdateStatus::Scheduled);
     });
 }
 
