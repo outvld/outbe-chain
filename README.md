@@ -6,7 +6,7 @@ Public EVM-compatible blockchain built on [Reth](https://github.com/paradigmxyz/
 ~2s blocks | Instant BFT finality | Built-in VRF | BLS hybrid signing | Full EVM
 ```
 
-No HTTP Engine API split: consensus and execution run in one process and talk through in-process Reth engine handles (`fork_choice_updated`, `new_payload`, payload builder). Validator lifecycle, staking, rewards, slashing, and business logic are stateful Rust precompiles; upgrades are hard-fork driven, with no proxy-admin governance.
+No HTTP Engine API split: consensus and execution run in one process and talk through in-process Reth engine handles (`fork_choice_updated`, `new_payload`, payload builder). Validator lifecycle, staking, rewards, slashing, voting, protocol updates, and business logic are stateful Rust precompiles; protocol updates are coordinated by validator vote plus binary rollout, with no proxy-admin model.
 
 ## Architecture
 
@@ -190,10 +190,34 @@ clears the share). Non-voting consensus followers may include `REGISTERED`,
 
 ## Upgrades
 
-Upgrades are coordinated by binary rollout / hard fork, not on-chain governance.
-The `ChainSpec` genesis hash is immutable at runtime; any change is hard-fork
-coordinated. Storage slot 0 is reserved for the storage schema version, which
-migrations increment rather than re-using retired slots.
+Protocol updates are proposed through the reusable vote module and scheduled by
+the update module after quorum. Operators still roll out binaries before the
+activation height; the on-chain vote decides when the protocol version becomes
+active.
+
+Operator flow:
+
+```bash
+UPDATE_ADDR=0x000000000000000000000000000000000000EE0B
+PAYLOAD='{"version":4,"activationHeight":12345,"info":"v1.2 rollout"}'
+
+outbe-cli --private-key "$VALIDATOR_KEY" vote propose \
+  --target-module "$UPDATE_ADDR" \
+  --payload "$PAYLOAD"
+
+outbe-cli --private-key "$VALIDATOR_KEY" vote cast --proposal-id 1 --yes
+outbe-cli vote status --proposal-id 1
+```
+
+Before consensus/RPC startup, the node checks the on-chain active protocol
+version. If the local binary protocol version is older than `active_version`, the
+node refuses to start and the operator must upgrade the binary.
+
+Handler details:
+
+- [`crates/system/vote/README.md`](crates/system/vote/README.md) — proposal/voting flow and target handlers.
+- [`crates/system/update/README.md`](crates/system/update/README.md) — active-version API, update target handler,
+  migration handlers, update precompile reads/events, and startup gate.
 
 ## Repository Layout
 

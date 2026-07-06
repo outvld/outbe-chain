@@ -1,62 +1,107 @@
 # Update
 
-`outbe-update` stores protocol upgrade proposals and the active on-chain protocol version.
+`outbe-update` owns protocol update scheduling and active protocol-version reads.
+It does not own proposal creation, voting, or quorum. Those live in
+[`outbe-vote`](../vote/README.md), which calls the update target handler after an
+update proposal is approved.
 
-## Version Model
+The update precompile address is `0x000000000000000000000000000000000000EE0B`
+(`UPDATE_ADDRESS`).
 
-Semver is a version in form `MAJOR.MINOR.PATCH`. It is mainly a developer/package API convention: major means incompatible API change, minor means compatible feature, patch means compatible fix.
+## Internal API
 
-Linux uses version numbers more loosely. Major bumps often mark a historical or conceptual period, not strictly an incompatible API break.
+Use `crates/system/update/src/api.rs` when another runtime module needs to check
+the active protocol version:
 
-### What is API in blockchain node?
-To understand how semver is applicable to our versioning, we need to define what is API in blockchain node. Usually it consists of 3 layers:
-- end-user interface: RPC methods, contract interfaces (and probably storage);
-- operator interface: CLI arguments, storage encoding, network protocol;
-- inter-node synchronization: network protocol, behaviour (precompiled contract implementation, consensus rules, etc.)
+- `get_active_version(storage)` returns the active `ProtocolVersion`.
+- `version_at_height(storage, height)` returns the version activated at a block,
+  or `0` when no update was activated there.
+- `is_version_active_eq(storage, version)` checks exact active-version equality.
+- `is_version_active_gte(storage, version)` checks feature availability by
+  minimum active version.
 
-So technically, every RPC methods or CLI arguments removal should be a major version bump, from the semver perspective.
+`ProtocolVersion` is a `u32` encoded as `u8 major + u24 minor`. `0` means
+unset/pre-upgrade. Display form is `v{major}.{minor}`.
 
-### Governance version
+## Vote Target Handler
 
-Governance version is more bounded to inter-node synchronization.
-Every node build should be backward compatible with the previous versions. This is important for replay stage.
-Thats why by it's form, the governance version should be monotonically increasing number.
+`UpdateVoteTarget` is the bridge from `vote` into `update`.
 
-### Semver usage
-To avoid multiple version types, the proposal is to use following rules during development, to make it easier to map semver from github release to on-chain version:
+- `target_module()` returns `UPDATE_ADDRESS`.
+- `validate(payload, current_height)` validates the scheduled-update JSON during
+  proposal creation.
+- `handle_approved(ctx, proposal_id, payload)` writes the scheduled update after
+  vote quorum is reached.
 
-- The `minor` should be bumped when protocol behavior changes: schema fields adding, contract logic (even subtle like rounding changes), or new on chain features.
-- The `major` bumps is kept for historical or conceptual milestones. Technically, handle it like a minor version bump, but with higher priority so that `2.0` is always greater than `1.X`.
-- `patch` stays binary/package-only. Use it for compatible changes: logs, optimizations, refactors, non-state behavior cleanup.
-- **Security fixes may be patch releases even if behavior changes; they are urgent binary fixes, and should not be passed through the governance.**
+The accepted payload is:
 
-Using this rules, the on-chain version uses one `u32` slot, encoded as `u8 major + u24 minor`.
+```json
+{"version":16777218,"activationHeight":12345,"info":"release notes or operator note"}
+```
 
-Unset storage slots default to version `0`, which is the initial version - before upgrade governance is activated.
+Rules:
 
-### Limitations
-
-- Caps for versions: max major: `255`, max minor: `16_777_215`.
-- Semver requires bump minor version when new API is added, e.g. new RPC method.
-- Semver requires bump major version when old outdated API is removed.
-
-### Alternatives
-
-- Instead of mapping semver version on chain, we can use a separate version ID as constant, with manual bump on inter-node synchronization changes.
-- We can have per-feature governance, this would require sublte contract interface changes, but will allow more granular control over each feature.
-
-## Events
-
-Write-call events (`ProposalCreated`, `VoteCast`, `ProposalCancelled`) are emitted from the Update precompile via normal `storage.emit_event` and appear in the caller's transaction receipt (`eth_getTransactionReceipt` / `eth_getLogs`).
-
-Lifecycle events (`ProposalApproved`, `ProposalRejected`, `ProposalExpired`, `UpgradeActivated`) are emitted from begin-block activation processing when tally or activation runs. They use the same storage event API but run under the direct pre-execution hook path, so they are **not** promised as EVM transaction receipt logs under current wiring. No synthetic/system receipts are used for Update domain events. Later, we may implement synthetic receipts for these events.
+- New scheduled version must be non-zero.
+- New scheduled version must be strictly greater than current `active_version`.
+- `activationHeight` must be at least `MIN_ACTIVATION_BUFFER` blocks in the future.
+- At most one scheduled update may target a given activation height.
 
 ## Upgrade Handlers
 
-Activation can run optional deterministic storage migrations before the active protocol version is switched.
+Activation can run optional deterministic migrations before the active protocol
+version is switched. This is useful for breaking changes in the schema, when some
+system contracts need to perform migration of the underlying data.
 
-- Handler signature: `fn(&BlockRuntimeContext, &ProposalInfo) -> Result<()>`.
-- Handler runs inside an activation checkpoint **before** `active_version`, proposal status, and `UpgradeActivated` are written.
-- The concrete compile-time handler table lives in `crates/blockchain/evm/src/upgrade_handlers.rs` as `ACTIVE_UPGRADE_HANDLERS`.
-- Handler implementations should live in their owning crates; `outbe-evm` only wires them into the registry.
-- Handler failure is fatal to block execution (`PrecompileError::Fatal`).
+- Implement `UpgradeHandler` for the version being activated.
+- `version()` returns the `ProtocolVersion` handled by this migration.
+- `label()` returns a stable human-readable label for errors/logs.
+- `handle(ctx, scheduled)` performs deterministic storage changes.
+
+Handlers run inside an activation checkpoint before `active_version`,
+`active_version_height`, activation history, status, and `UpgradeActivated` are
+written. Handler failure is fatal to block execution. Missing handler is valid:
+the active version changes without a migration.
+
+The concrete compile-time handler table is owned by the node execution layer and
+passed to `UpdateLifecycle::begin_block_with_handlers`.
+
+## External API
+
+Read update state through `IUpdate` with `eth_call`/`cast call`:
+
+```bash
+UPDATE_ADDR=0x000000000000000000000000000000000000EE0B
+
+cast call "$UPDATE_ADDR" 'getActiveVersion()(uint32)' --rpc-url "$RPC_URL"
+cast call "$UPDATE_ADDR" 'getActiveVersionHeight()(uint64)' --rpc-url "$RPC_URL"
+cast call "$UPDATE_ADDR" 'isVersionActive(uint32)(bool)' 16777218 --rpc-url "$RPC_URL"
+cast call "$UPDATE_ADDR" 'getScheduledUpdate(uint256)((uint256,uint32,uint64,bytes,uint8))' 1 --rpc-url "$RPC_URL"
+cast call "$UPDATE_ADDR" 'listWaitingForActivation()(uint256[])' --rpc-url "$RPC_URL"
+```
+
+Methods:
+
+- `getActiveVersion() -> uint32`
+- `getActiveVersionHeight() -> uint64`
+- `isVersionActive(uint32 version) -> bool`
+- `getScheduledUpdate(uint256 proposalId) -> ScheduledUpdate`
+- `listWaitingForActivation() -> uint256[]`
+
+Events:
+
+- `ScheduledUpdateCreated(uint256 indexed proposalId, uint32 version, uint64 activationHeight, bytes info)`
+- `UpgradeActivated(uint32 version, uint64 activationHeight)`
+- `UpgradeCanceled(uint256 indexed proposalId, uint32 version, uint64 activationHeight)`
+
+Update proposal and vote events are emitted by `vote`; see
+[`outbe-vote`](../vote/README.md).
+
+## Startup Gate
+
+Use `outbe_update::startup::assert_binary_protocol_compatible(active_version)` to
+fail fast when a local binary is older than the on-chain active protocol version.
+This check is run before consensus/RPC startup.
+
+Use `warn_missing_handlers_for_waiting_updates(waiting, registry)` to warn about
+scheduled versions that have no migration handler. Missing handlers are warnings,
+not startup failures, because version-only activation is valid.
