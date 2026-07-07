@@ -113,12 +113,17 @@ do_start() {
         fi
     fi
 
-    local base_rpc=8545
-    local base_p2p=30303
-    local base_discv5=31303
-    local base_consensus=30400
-    local base_authrpc=8551
-    local base_metrics=9101
+    # Instance isolation: E2E_PORT_OFFSET (= E2E_SLOT*stride, exported by the e2e
+    # harness) shifts every port band so several testnets can share one host.
+    # Defaults to 0 — the historical fixed scheme — for standalone use. Must match
+    # the offset bootstrap-testnet.sh baked into validators.json / reth-bootnodes.txt.
+    local port_offset="${E2E_PORT_OFFSET:-0}"
+    local base_rpc=$((8545 + port_offset))
+    local base_p2p=$((30303 + port_offset))
+    local base_discv5=$((31303 + port_offset))
+    local base_consensus=$((30400 + port_offset))
+    local base_authrpc=$((8551 + port_offset))
+    local base_metrics=$((9101 + port_offset))
 
     # Optional per-validator TEE enclave. Opt-in via OUTBE_TEE_ENCLAVE=1 (binary
     # auto-detected in ./target, or set OUTBE_TEE_ENCLAVE_BINARY). When enabled,
@@ -215,9 +220,11 @@ do_start() {
             # clean re-bootstrap. Offset by 1 so the seed is never all-zero.
             local tee_dkg_seed
             tee_dkg_seed=$(printf '%064x' "$((i + 1))")
-            local tee_port=$((7000 + i))
+            local tee_port=$((7000 + port_offset + i))
             local tee_endpoint="127.0.0.1:$tee_port"
-            local tee_ctr="outbe-tee-gramine-$i"
+            # Tag the container per instance (empty at slot 0 → historical name) so
+            # a concurrent testnet's containers never clash by name.
+            local tee_ctr="outbe-tee-gramine${E2E_TAG:+-$E2E_TAG}-$i"
             local -a sgx_dev=()
             # Pass the SGX device only for the production binary. In mock mode the
             # enclave is the EMULATOR (gramine-direct, no SGX): withholding the

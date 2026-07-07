@@ -19,7 +19,7 @@ bad(){ echo "  FAIL: $1"; FAIL=$((FAIL+1)); }
 lockstep(){ local h c; h=$(e2e_h "$1"); c=$(e2e_h 8545); [ "$h" != "dn" ] && [ "$c" != "dn" ] && [ $((c - h)) -le 4 ] 2>/dev/null; }
 wait_lockstep(){ local port="$1" tries="${2:-30}" i; for i in $(seq 1 "$tries"); do sleep 6; lockstep "$port" && return 0; done; return 1; }
 
-launch_follower(){ # $1=dir $2=http $3=p2p $4=disc5 $5=auth $6=upstream_url
+launch_follower(){ # $1=dir $2=http $3=p2p $4=disc5 $5=auth $6=upstream_port (all CANONICAL slot-0 ports; offset applied here)
   local fd="$1"; mkdir -p "$fd/data" "$fd/logs"
   # On a TEE chain a full-execution follower re-runs offer + registerEnclave txs
   # through the enclave (both land in the receipts root), so it needs an enclave
@@ -30,18 +30,18 @@ launch_follower(){ # $1=dir $2=http $3=p2p $4=disc5 $5=auth $6=upstream_url
   RUST_MIN_STACK=16777216 RUST_LOG="info,outbe_consensus::follow=debug" \
   setsid nohup env "PATH=$PATH" "$BIN" node \
     --chain "$E2E_DIR/genesis.json" --datadir "$fd/data" \
-    --http --http.addr 0.0.0.0 --http.port "$2" --http.api eth,net,web3,outbe \
-    --port "$3" --discovery.port "$3" --discovery.v5.addr 127.0.0.1 --discovery.v5.port "$4" \
-    --p2p-secret-key-hex "$(openssl rand -hex 32)" --authrpc.port "$5" \
+    --http --http.addr 0.0.0.0 --http.port "$(e2e_port "$2")" --http.api eth,net,web3,outbe \
+    --port "$(e2e_port "$3")" --discovery.port "$(e2e_port "$3")" --discovery.v5.addr 127.0.0.1 --discovery.v5.port "$(e2e_port "$4")" \
+    --p2p-secret-key-hex "$(openssl rand -hex 32)" --authrpc.port "$(e2e_port "$5")" \
     --ipcpath "$fd/data/reth.ipc" --log.file.directory "$fd/logs" \
-    --tee-enclave-socket 127.0.0.1:7000 \
-    --upstream "$6" >> "$fd/node.log" 2>&1 < /dev/null &
+    --tee-enclave-socket "127.0.0.1:$(e2e_port 7000)" \
+    --upstream "$(e2e_url "$6")" >> "$fd/node.log" 2>&1 < /dev/null &
   echo "  follower @$1 pid $!"
 }
 
 echo "===== bootstrap + start 4-validator committee (epoch=60) ====="
 e2e_cleanup
-rm -rf /tmp/e2e-suite/follower /tmp/e2e-suite/follower2 2>/dev/null
+rm -rf "$E2E_DIR/follower" "$E2E_DIR/follower2" 2>/dev/null
 e2e_bootstrap 4 || { echo BOOTSTRAP_FAIL; exit 1; }
 e2e_start
 
@@ -56,14 +56,14 @@ done
 echo "reshared: version=$VER h=$(e2e_h 8545)"
 
 echo "===== S1: cold follower1 (--upstream committee) syncs past the reshare ====="
-launch_follower "$E2E_DIR/follower" 8559 30317 31317 8565 http://localhost:8545
+launch_follower "$E2E_DIR/follower" 8559 30317 31317 8565 8545
 if wait_lockstep 8559 30; then ok "S1 follower1 lockstep (head=$(e2e_h 8559) vs committee=$(e2e_h 8545))"; else bad "S1 follower1 stuck (head=$(e2e_h 8559) vs $(e2e_h 8545))"; fi
 
 echo "===== S1b: follower2 --upstream=FOLLOWER1 (tip publish + getFinalization serving) ====="
-F1TIP=$(cast rpc outbe_consensusStatus --rpc-url http://localhost:8559 2>/dev/null | jq -r '.lastFinalizedBlock // 0')
+F1TIP=$(cast rpc outbe_consensusStatus --rpc-url "$(e2e_url 8559)" 2>/dev/null | jq -r '.lastFinalizedBlock // 0')
 echo "  follower1 published tip: $F1TIP"
 if [ "${F1TIP:-0}" -gt 0 ] 2>/dev/null; then ok "S1b follower1 publishes lastFinalizedBlock=$F1TIP"; else bad "S1b follower1 tip not published ($F1TIP)"; fi
-launch_follower "$E2E_DIR/follower2" 8560 30318 31318 8566 http://localhost:8559
+launch_follower "$E2E_DIR/follower2" 8560 30318 31318 8566 8559
 if wait_lockstep 8560 30; then ok "S1b follower2 (chained off follower1) lockstep (head=$(e2e_h 8560))"; else bad "S1b follower2 stuck (head=$(e2e_h 8560) vs $(e2e_h 8545))"; fi
 
 echo "===== S3: validator-3 catch-up (kill mid-epoch, restart, relockstep) ====="
@@ -76,23 +76,25 @@ H_DOWN=$(e2e_h 8548 2>/dev/null || echo dn)
 echo "  restarting validator-3 (was at ~$H_DOWN, committee $(e2e_h 8545))"
 BOOTNODES=$(paste -sd, "$E2E_DIR/reth-bootnodes.txt")
 V3SECRET=$(tr -d '[:space:]' < "$E2E_DIR/validator-3/reth-p2p-secret.hex")
+# Canonical validator-3 ports (30303/8545/... + 3) shifted by this instance's
+# offset via e2e_port, which the current shell expands before sudo runs.
 sudo env RUST_MIN_STACK=16777216 bash -c "setsid nohup '$BIN' node --validator \
   --chain '$E2E_DIR/genesis.json' --datadir '$E2E_DIR/validator-3/data' \
-  --http --http.addr 0.0.0.0 --http.port 8548 --http.api eth,net,web3,outbe \
-  --port 30306 --discovery.port 30306 --discovery.v5.addr 127.0.0.1 --discovery.v5.port 31306 \
+  --http --http.addr 0.0.0.0 --http.port $(e2e_port 8548) --http.api eth,net,web3,outbe \
+  --port $(e2e_port 30306) --discovery.port $(e2e_port 30306) --discovery.v5.addr 127.0.0.1 --discovery.v5.port $(e2e_port 31306) \
   --bootnodes '$BOOTNODES' --p2p-secret-key-hex '$V3SECRET' \
-  --authrpc.port 8554 --ipcpath '$E2E_DIR/validator-3/data/reth.ipc' --metrics 0.0.0.0:9104 \
+  --authrpc.port $(e2e_port 8554) --ipcpath '$E2E_DIR/validator-3/data/reth.ipc' --metrics 0.0.0.0:$(e2e_port 9104) \
   --log.file.directory '$E2E_DIR/validator-3/logs' \
   --consensus.signing-key '$E2E_DIR/validator-3/signing-key.hex' \
   --validator.evm-key '$E2E_DIR/validator-3/evm-key.hex' \
-  --consensus.listen-addr 127.0.0.1:30403 --consensus.use-local-defaults \
-  --tee-enclave-socket 127.0.0.1:7003 \
+  --consensus.listen-addr 127.0.0.1:$(e2e_port 30403) --consensus.use-local-defaults \
+  --tee-enclave-socket 127.0.0.1:$(e2e_port 7003) \
   >> '$E2E_DIR/validator-3/node.log' 2>&1 < /dev/null &"
 if wait_lockstep 8548 30; then ok "S3 validator-3 caught up (head=$(e2e_h 8548) vs $(e2e_h 8545))"; else bad "S3 validator-3 did not catch up (head=$(e2e_h 8548) vs $(e2e_h 8545))"; fi
 
 echo "===== S2: WARM promotion — follower1 datadir restarts as a validator ====="
 # stop followers (follower1's datadir becomes the promoted validator's)
-for pid in $(ps -eo pid,args | grep "outbe-chain node" | grep -E "follower2?/data" | grep -v grep | awk '{print $1}'); do kill -9 "$pid" 2>/dev/null; done
+for pid in $(ps -eo pid,args | grep "outbe-chain node" | grep -E "$E2E_DIR/follower2?/data" | grep -v grep | awk '{print $1}'); do kill -9 "$pid" 2>/dev/null; done
 sleep 3
 F_STOP_H=$(e2e_h 8559 2>/dev/null || echo dn)
 echo "  follower1 stopped (synced to ~cached height); provisioning v5 keys/registration"

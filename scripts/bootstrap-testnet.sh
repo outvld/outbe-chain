@@ -86,20 +86,53 @@ mkdir -p "$OUTPUT_DIR"
 # Step 1: DKG bootstrap
 echo "--- Step 1: DKG Bootstrap ---"
 "$OUTBE_CHAIN_BINARY" dkg bootstrap --output-dir "$OUTPUT_DIR" --validators "$NUM_VALIDATORS"
-if [ "$OUTBE_CONSENSUS_HOST_PATTERN" != "127.0.0.1" ]; then
-    echo "  Rewriting validator consensus P2P hosts with pattern: $OUTBE_CONSENSUS_HOST_PATTERN"
-    python3 - "$OUTPUT_DIR/validators.json" "$OUTBE_CONSENSUS_HOST_PATTERN" <<'PY'
+
+# Instance isolation: E2E_PORT_OFFSET (exported by the e2e harness; 0 for
+# standalone use) shifts every port band so several testnets can share one host.
+# The `dkg bootstrap` binary hardcodes the consensus p2p port (30400+i) in
+# validators.json and the reth enode port (30303+i) in reth-bootnodes.txt, so
+# post-process BOTH here to match run-testnet.sh's offset — otherwise committee
+# peers would dial the un-offset ports and never connect.
+PORT_OFFSET="${E2E_PORT_OFFSET:-0}"
+
+# Rewrite consensus p2p host (OUTBE_CONSENSUS_HOST_PATTERN) and/or port (offset).
+if [ "$OUTBE_CONSENSUS_HOST_PATTERN" != "127.0.0.1" ] || [ "$PORT_OFFSET" -ne 0 ]; then
+    echo "  Rewriting validator consensus P2P addresses (host: $OUTBE_CONSENSUS_HOST_PATTERN, port offset: $PORT_OFFSET)"
+    python3 - "$OUTPUT_DIR/validators.json" "$OUTBE_CONSENSUS_HOST_PATTERN" "$PORT_OFFSET" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 pattern = sys.argv[2]
+offset = int(sys.argv[3])
 validators = json.loads(path.read_text())
 for i, entry in enumerate(validators):
     host = pattern.replace("{i}", str(i)).replace("%d", str(i))
-    entry["p2p_address"] = f"{host}:{30400 + i}"
+    entry["p2p_address"] = f"{host}:{30400 + offset + i}"
 path.write_text(json.dumps(validators, indent=2) + "\n")
+PY
+fi
+
+# Shift the reth enode ports in reth-bootnodes.txt by the same offset (the binary
+# wrote them as 30303+i; each line is `enode://<id>@127.0.0.1:<port>`).
+if [ "$PORT_OFFSET" -ne 0 ] && [ -f "$OUTPUT_DIR/reth-bootnodes.txt" ]; then
+    echo "  Shifting reth-bootnodes.txt enode ports by offset: $PORT_OFFSET"
+    python3 - "$OUTPUT_DIR/reth-bootnodes.txt" "$PORT_OFFSET" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+offset = int(sys.argv[2])
+out = []
+for line in path.read_text().splitlines():
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        out.append(line)
+        continue
+    host, sep, port = line.rpartition(":")
+    out.append(f"{host}{sep}{int(port) + offset}" if sep else line)
+path.write_text("\n".join(out) + "\n")
 PY
 fi
 echo
@@ -230,12 +263,12 @@ echo
 # Step 3: Print startup commands
 echo "--- Startup Commands ---"
 echo
-BASE_RETH_P2P_PORT=30303
-BASE_RETH_DISCV5_PORT=31303
-BASE_CONSENSUS_PORT=30400
-BASE_RPC_PORT=8545
-BASE_AUTH_RPC_PORT=8551
-BASE_METRICS_PORT=9101
+BASE_RETH_P2P_PORT=$((30303 + PORT_OFFSET))
+BASE_RETH_DISCV5_PORT=$((31303 + PORT_OFFSET))
+BASE_CONSENSUS_PORT=$((30400 + PORT_OFFSET))
+BASE_RPC_PORT=$((8545 + PORT_OFFSET))
+BASE_AUTH_RPC_PORT=$((8551 + PORT_OFFSET))
+BASE_METRICS_PORT=$((9101 + PORT_OFFSET))
 RETH_BOOTNODES_FILE="${RETH_BOOTNODES_FILE:-$OUTPUT_DIR/reth-bootnodes.txt}"
 
 for i in $(seq 0 $((NUM_VALIDATORS - 1))); do
@@ -300,4 +333,4 @@ with open('$OUTPUT_DIR/validators.json') as f:
 done
 echo
 echo "Example (local dev only; avoid pasting keys into shared logs):"
-echo "  EVM_KEY=\$(tr -d '[:space:]' < $OUTPUT_DIR/validator-0/evm-key.hex) cast send <TO> --value 1ether --private-key \"\$EVM_KEY\" --rpc-url http://localhost:8545"
+echo "  EVM_KEY=\$(tr -d '[:space:]' < $OUTPUT_DIR/validator-0/evm-key.hex) cast send <TO> --value 1ether --private-key \"\$EVM_KEY\" --rpc-url http://localhost:$BASE_RPC_PORT"

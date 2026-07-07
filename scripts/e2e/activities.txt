@@ -1,0 +1,71 @@
+E2E SCRIPT ACTIVITIES
+=====================
+Reusable "activities" (functions) used by the shell e2e suite in scripts/e2e/.
+Defined mainly in lib.sh; a few local ones in follower_upstream.sh and
+update_operator_flow.sh.
+
+NETWORK LIFECYCLE (start / stop / bootstrap)
+  e2e_cleanup           Stop testnet, kill supervisors/nodes, remove TEE containers, wipe dir
+  e2e_bootstrap <N>     Generate genesis/keys/config for an N-node committee
+  e2e_start             Start committee with gramine mock TEE enclave; wait for bootstrap
+  e2e_provision_joiner  Provision joiner v5: keygen, fund, register, p2p, enclave, tee join
+  e2e_launch_joiner     Launch joiner node process (validator mode)
+  e2e_stop_joiner       Kill the joiner node process
+  e2e_kill_validator i  Kill committee validator i so it stays down
+  launch_follower       Launch a follower node syncing from an upstream (follower_upstream.sh)
+
+VALIDATOR / STAKING OPERATIONS (send tx)
+  e2e_stake             Stake ether from a validator key (REGISTERED -> PENDING)
+  e2e_confirm_ready     Confirm a PENDING joiner is synced/ready
+  e2e_deactivate        Self-deactivate a validator
+  (registerValidator / setP2pAddress / fund via cast send inside provision_joiner)
+
+TRIBUTE / PROTOCOL TXS (send message)
+  e2e_offer             Submit a tribute offer for the OFFERING day; retry until supply rises
+
+GOVERNANCE / UPDATE FLOW (update_operator_flow.sh)
+  run_update_propose      Submit an update proposal tx
+  run_update_vote         Cast a vote on a proposal
+  schedule_update_payload Build the schedule-update payload
+  scheduled_update_field  Read a field from a scheduled update
+  active_protocol_version Read the active on-chain protocol version
+
+RPC READERS / QUERIES (read state)
+  e2e_h                 Head block number
+  e2e_fin               Finalized block number (decimal)
+  e2e_supply            Tribute totalSupply
+  e2e_active            Active validator count
+  e2e_consensus_count   Active consensus participant count
+  e2e_participant       Is address a consensus participant
+  e2e_bootstrapped      Is TEE chain bootstrapped
+  e2e_stateroot         Block state root
+  e2e_blockhash         Block hash
+  e2e_status            Validator status code (REGISTERED/PENDING/ACTIVE/EXITING/...)
+  e2e_hasshare          Validator has DKG share
+  e2e_missedvotes       Validator missed-votes count
+  e2e_stake_amount      Validator stake amount
+  e2e_slashcount        Validator slash count
+  e2e_v0key / e2e_vkey  Read validator EVM key from disk
+
+WAIT / SYNC HELPERS (poll until condition)
+  e2e_wait_height       Wait until a port's head >= target
+  wait_lockstep         Wait until follower is within ~4 blocks of leader
+  lockstep              Check follower vs leader head gap
+  wait_tx_success       Wait for a tx receipt to succeed
+  wait_height_gt        Wait until head exceeds a value
+  wait_vote_status      Wait for a proposal to reach a vote status
+  wait_active_version   Wait for active protocol version to change
+
+LOG PROBES (inspect node output)
+  e2e_joiner_log_has    Joiner log contains a pattern
+  e2e_joiner_log_count  Count pattern occurrences in joiner log
+  e2e_val_log_count     Count pattern occurrences in committee validator log
+
+ASSERTIONS / TALLY (test harness)
+  e2e_assert            Boolean assertion
+  e2e_assert_eq         Equality assertion
+  e2e_assert_ge         Greater-or-equal assertion
+  e2e_summary           Print PASS/FAIL tally and SCENARIO_PASS/FAIL
+  e2e_log / e2e_step    Logging helpers
+  ok / bad              Local pass/fail counters (follower_upstream.sh)
+  extract_tx_hash / extract_deadline   Parse CLI output

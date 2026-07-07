@@ -29,7 +29,7 @@ e2e_launch_joiner
 V5H=$(e2e_wait_height 8549 25 18); e2e_log "v5 synced to h=$V5H (committee $(e2e_h 8545))"
 e2e_assert_ge "v5 caught up to tip (head > 20)" "$V5H" 20
 e2e_assert_eq "full-node executed the offer in its own enclave (supply parity)" "1" "$(e2e_supply 8549)"
-e2e_assert_eq "full-node is NOT a consensus participant" "false" "$(e2e_participant "$V5_ADDR" "http://localhost:8549")"
+e2e_assert_eq "full-node is NOT a consensus participant" "false" "$(e2e_participant "$V5_ADDR" "$(e2e_url 8549)")"
 e2e_assert_eq "active set unchanged by a full-node" "4" "$(e2e_active)"
 # state-root parity at a common finalized height.
 PN=$(e2e_fin 8549); [ "$PN" = "dn" ] && PN=20

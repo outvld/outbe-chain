@@ -27,6 +27,28 @@ tally. `lib.sh` holds the shared harness (bootstrap, joiner provisioning, RPC/
 state readers, assertions). Ports: committee http `8545+i`; joiner v5 http `8549`,
 consensus `30404`, tee `7004`.
 
+### Running several suites on one machine (`E2E_SLOT`)
+
+By default every scenario uses the fixed ports above, the data dir
+`/tmp/e2e-suite`, docker containers `outbe-tee-gramine-<i>`, and `/tmp/e2e-*.log`
+— so two runs on one host would collide (shared ports, and each run's cleanup
+would wipe the other's data dir and kill its nodes/containers).
+
+Set `E2E_SLOT=<n>` (0–4) to get a fully isolated instance:
+
+```sh
+E2E_SLOT=1 ./scripts/e2e/s1_s2_s6_s3_lifecycle.sh   # ports +200, /tmp/e2e-suite-s1, outbe-tee-gramine-s1-<i>
+```
+
+`E2E_SLOT` derives everything from one offset (`E2E_PORT_OFFSET = SLOT*200`,
+applied to every port band) plus a tag suffixing the data dir, containers and
+logs. Slot 0 (the default, unset) is byte-identical to the historical scheme, so
+CI and `mise run e2e` are unchanged. Cleanup/kill logic is scoped to the
+instance's own data dir and container names, so slots never disturb each other.
+Stride 200 keeps the cramped reth-p2p/consensus/discv5 bands collision-free for
+up to five concurrent slots (0–4); for more, raise `E2E_PORT_STRIDE` (or set
+`E2E_PORT_OFFSET`/`E2E_TAG` directly). Chain id stays `54322345` for every slot.
+
 ## Two protocol gaps this suite drove (now implemented, commit `bea1a24a`)
 
 - **S3 demotion** — an exited validator's node used to die at VRF expiry after its

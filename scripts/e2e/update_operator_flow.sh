@@ -50,14 +50,16 @@ e2e_start() {
     sudo env OUTBE_TEST_VOTING_WINDOW_BLOCKS="$E2E_VOTE_WINDOW_BLOCKS" \
       OUTBE_TEE_ENCLAVE=1 OUTBE_TEE_ENCLAVE_MOCK=1 OUTBE_TEE_SEAL=1 \
       OUTBE_TEE_ENCLAVE_BINARY="$E2E_MOCK" OUTBE_CHAIN_BINARY="$E2E_BIN" PATH="$PATH" \
-      ./scripts/run-testnet.sh start "$E2E_DIR" >/tmp/e2e-start.log 2>&1
+      E2E_PORT_OFFSET="$E2E_PORT_OFFSET" E2E_TAG="$E2E_TAG" \
+      ./scripts/run-testnet.sh start "$E2E_DIR" >"$E2E_START_LOG" 2>&1
     local ok=false
     for _ in $(seq 1 18); do sleep 5; [ "$(e2e_bootstrapped)" = "true" ] && { ok=true; break; }; done
     e2e_assert "TEE chain bootstrapped" "$([ "$ok" = true ] && echo true || echo false)"
   else
     sudo env OUTBE_TEST_VOTING_WINDOW_BLOCKS="$E2E_VOTE_WINDOW_BLOCKS" \
       OUTBE_CHAIN_BINARY="$E2E_BIN" PATH="$PATH" \
-      ./scripts/run-testnet.sh start "$E2E_DIR" >/tmp/e2e-start.log 2>&1
+      E2E_PORT_OFFSET="$E2E_PORT_OFFSET" E2E_TAG="$E2E_TAG" \
+      ./scripts/run-testnet.sh start "$E2E_DIR" >"$E2E_START_LOG" 2>&1
     local ok=false h
     for _ in $(seq 1 18); do
       sleep 5
@@ -232,7 +234,7 @@ VERSION="$((ACTIVE_VERSION + 1))"
 PAYLOAD="$(schedule_update_payload)"
 
 e2e_step "propose update (validator-0, version $VERSION)"
-PROPOSE_LOG=/tmp/e2e-update-propose.log
+PROPOSE_LOG="${E2E_LOG_PREFIX}-update-propose.log"
 if ! run_update_propose "$V0" >"$PROPOSE_LOG" 2>&1; then
   e2e_log "propose failed:"
   tail -5 "$PROPOSE_LOG"
@@ -267,7 +269,7 @@ e2e_assert "proposal payload contains activation height" "$(echo "$STATUS" | gre
 
 e2e_step "cast yes votes from three validators"
 for KEY in "$V0" "$V1" "$V2"; do
-  VOTE_LOG=/tmp/e2e-update-vote.log
+  VOTE_LOG="${E2E_LOG_PREFIX}-update-vote.log"
   if ! run_update_vote "$KEY" >"$VOTE_LOG" 2>&1; then
     e2e_log "vote failed for key ${KEY:0:10}..."
     tail -3 "$VOTE_LOG"

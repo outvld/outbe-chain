@@ -68,7 +68,8 @@ e2e_step "S5: restore validator-3 -> ceremony completes on a later retry"
 # so on completion it is activated revealed (ACTIVE-but-voteless until it restarts).
 sudo env OUTBE_TEE_ENCLAVE=1 OUTBE_TEE_ENCLAVE_MOCK=1 OUTBE_TEE_SEAL=1 \
   OUTBE_TEE_ENCLAVE_BINARY="$E2E_MOCK" OUTBE_CHAIN_BINARY="$E2E_BIN" PATH="$PATH" \
-  ./scripts/run-testnet.sh start "$E2E_DIR" >/tmp/e2e-s5-restart.log 2>&1
+  E2E_PORT_OFFSET="$E2E_PORT_OFFSET" E2E_TAG="$E2E_TAG" \
+  ./scripts/run-testnet.sh start "$E2E_DIR" >"${E2E_LOG_PREFIX}-s5-restart.log" 2>&1
 e2e_log "restored validator-3; waiting for the ceremony to complete (4 online acking players)..."
 RECOVERED=false
 for i in $(seq 1 40); do sleep 10; AC=$(e2e_active); e2e_log "  committee=$(e2e_h 8545) active=$AC"; [ "$AC" = "5" ] && { RECOVERED=true; break; }; done
