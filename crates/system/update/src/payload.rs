@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::constants::MIN_ACTIVATION_BUFFER;
+use crate::constants::min_activation_buffer;
 use crate::errors::UpdateError;
 use crate::ProtocolVersion;
 
@@ -39,11 +39,15 @@ impl ScheduleUpdatePayload {
         ProtocolVersion::from(self.version)
     }
 
-    pub fn validate(&self, current_height: u64) -> std::result::Result<(), UpdateError> {
+    pub fn validate(
+        &self,
+        current_height: u64,
+        chain_id: u64,
+    ) -> std::result::Result<(), UpdateError> {
         if self.protocol_version().is_zero() {
             return Err(UpdateError::InvalidVersion);
         }
-        let min_activation = current_height.saturating_add(MIN_ACTIVATION_BUFFER);
+        let min_activation = current_height.saturating_add(min_activation_buffer(chain_id));
         if self.activation_height < min_activation {
             return Err(UpdateError::HeightInPast);
         }
@@ -81,6 +85,39 @@ pub fn decode_schedule_update_json(
 pub fn validate_schedule_update_json(
     payload: &Value,
     current_height: u64,
+    chain_id: u64,
 ) -> std::result::Result<(), UpdateError> {
-    ScheduleUpdatePayload::from_value(payload)?.validate(current_height)
+    ScheduleUpdatePayload::from_value(payload)?.validate(current_height, chain_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constants::MIN_ACTIVATION_BUFFER;
+
+    const LOCALNET_CHAIN_ID: u64 = 54_322_345;
+    const OTHER_CHAIN_ID: u64 = 1;
+
+    fn payload(activation_height: u64) -> ScheduleUpdatePayload {
+        ScheduleUpdatePayload::new(ProtocolVersion::from(2), activation_height, "notes")
+    }
+
+    #[test]
+    fn localnet_allows_immediate_activation() {
+        // buffer is 0 on localnet: activation at the current height is accepted.
+        assert!(payload(100).validate(100, LOCALNET_CHAIN_ID).is_ok());
+    }
+
+    #[test]
+    fn other_chains_still_require_the_buffer() {
+        let current = 100;
+        let just_under = current + MIN_ACTIVATION_BUFFER - 1;
+        assert!(matches!(
+            payload(just_under).validate(current, OTHER_CHAIN_ID),
+            Err(UpdateError::HeightInPast)
+        ));
+        assert!(payload(current + MIN_ACTIVATION_BUFFER)
+            .validate(current, OTHER_CHAIN_ID)
+            .is_ok());
+    }
 }

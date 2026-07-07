@@ -29,7 +29,7 @@ impl VoteTarget for TestUpdateVoteTarget {
         UPDATE_ADDRESS
     }
 
-    fn validate(&self, payload: &Value, _current_height: u64) -> Result<()> {
+    fn validate(&self, payload: &Value, _current_height: u64, _chain_id: u64) -> Result<()> {
         if payload.is_object() {
             Ok(())
         } else {

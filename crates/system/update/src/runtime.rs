@@ -4,7 +4,7 @@ use serde_json::Value;
 use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::{PrecompileError, Result};
 
-use crate::constants::{MAX_WAITING_FOR_ACTIVATION_UPDATES, MIN_ACTIVATION_BUFFER};
+use crate::constants::{min_activation_buffer, MAX_WAITING_FOR_ACTIVATION_UPDATES};
 use crate::errors::UpdateError;
 use crate::handlers::UpgradeHandlerRegistry;
 use crate::payload::decode_schedule_update_json;
@@ -51,7 +51,8 @@ impl Update<'_> {
             return Err(UpdateError::DowngradeNotAllowed.into());
         }
 
-        let min_activation = current_height.saturating_add(MIN_ACTIVATION_BUFFER);
+        let chain_id = self.storage.chain_id()?;
+        let min_activation = current_height.saturating_add(min_activation_buffer(chain_id));
         if activation_height < min_activation {
             return Err(UpdateError::HeightInPast.into());
         }

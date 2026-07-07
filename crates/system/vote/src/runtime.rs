@@ -83,7 +83,7 @@ impl Vote<'_> {
             return Err(VoteError::TooManyPendingByValidator.into());
         }
 
-        handlers::validate_target_payload(registry, target_module, payload, current_height)?;
+        handlers::validate_target_payload(registry, target_module, payload, current_height, chain_id)?;
 
         let voting_deadline = current_height.saturating_add(voting_window_blocks(chain_id));
         let proposal_id = self.write_proposal(

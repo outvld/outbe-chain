@@ -11,9 +11,7 @@ pub const HOOK_EVENT_RECEIPT_ADDRESSES: &[Address] = &[VOTE_ADDRESS, UPDATE_ADDR
 
 /// Returns `true` when `address` is whitelisted for hook-event receipt publication.
 pub fn is_hook_event_receipt_address(address: Address) -> bool {
-    HOOK_EVENT_RECEIPT_ADDRESSES
-        .iter()
-        .any(|whitelisted| *whitelisted == address)
+    HOOK_EVENT_RECEIPT_ADDRESSES.contains(&address)
 }
 
 /// Splits hook events into receipt-visible (whitelisted) and tracing-only buckets.
@@ -32,7 +30,7 @@ pub fn partition_hook_events(events: &[Log]) -> (Vec<Log>, Vec<Log>) {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::{B256, Bytes, Log, LogData};
+    use alloy_primitives::{Bytes, Log, LogData, B256};
 
     use crate::addresses::REWARDS_ADDRESS;
 

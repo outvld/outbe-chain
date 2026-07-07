@@ -18,8 +18,8 @@ impl VoteTarget for UpdateVoteTarget {
         UPDATE_ADDRESS
     }
 
-    fn validate(&self, payload: &Value, current_height: u64) -> Result<()> {
-        validate_schedule_update_json(payload, current_height).map_err(Into::into)
+    fn validate(&self, payload: &Value, current_height: u64, chain_id: u64) -> Result<()> {
+        validate_schedule_update_json(payload, current_height, chain_id).map_err(Into::into)
     }
 
     fn handle_approved(

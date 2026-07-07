@@ -17,7 +17,7 @@ pub trait VoteTarget: Send + Sync {
     fn target_module(&self) -> Address;
 
     /// Fail-fast validation used during proposal creation.
-    fn validate(&self, payload: &Value, current_height: u64) -> Result<()>;
+    fn validate(&self, payload: &Value, current_height: u64, chain_id: u64) -> Result<()>;
 
     /// Applies side effects when a proposal is approved.
     fn handle_approved(
@@ -83,10 +83,11 @@ pub fn validate_target_payload(
     target_module: Address,
     payload: &str,
     current_height: u64,
+    chain_id: u64,
 ) -> Result<()> {
     let target = registry.lookup(target_module)?;
     let json = parse_payload_json(payload)?;
-    target.validate(&json, current_height)
+    target.validate(&json, current_height, chain_id)
 }
 
 /// Dispatches a terminal proposal outcome to its target module.

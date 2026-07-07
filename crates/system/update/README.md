@@ -43,7 +43,8 @@ Rules:
 
 - New scheduled version must be non-zero.
 - New scheduled version must be strictly greater than current `active_version`.
-- `activationHeight` must be at least `MIN_ACTIVATION_BUFFER` blocks in the future.
+- `activationHeight` must be at least `MIN_ACTIVATION_BUFFER` blocks in the future
+  (the buffer is `0` on the localnet chain id so e2e updates activate promptly).
 - At most one scheduled update may target a given activation height.
 
 ## Upgrade Handlers
