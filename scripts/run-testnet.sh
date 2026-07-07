@@ -22,6 +22,11 @@ VALIDATORS_JSON="$OUTPUT_DIR/validators.json"
 PID_DIR="$OUTPUT_DIR/pids"
 RETH_BOOTNODES="${RETH_BOOTNODES:-}"
 RETH_BOOTNODES_FILE="${RETH_BOOTNODES_FILE:-$OUTPUT_DIR/reth-bootnodes.txt}"
+# Uniform port shift so multiple localnets can run in parallel. Applied to every
+# base port below (and the TEE socket). Must match the PORT_OFFSET the network was
+# bootstrapped with — bootstrap-testnet.sh bakes the same shift into the consensus
+# p2p addresses (validators.json/genesis) and reth bootnodes.
+PORT_OFFSET="${PORT_OFFSET:-0}"
 OUTBE_TEST_DROP_NEW_PAYLOAD_VALIDATOR="${OUTBE_TEST_DROP_NEW_PAYLOAD_VALIDATOR:-}"
 OUTBE_TEST_DROP_NEW_PAYLOAD_HEIGHT="${OUTBE_TEST_DROP_NEW_PAYLOAD_HEIGHT:-}"
 OUTBE_TEST_VOTING_WINDOW_BLOCKS="${OUTBE_TEST_VOTING_WINDOW_BLOCKS:-}"
@@ -113,12 +118,12 @@ do_start() {
         fi
     fi
 
-    local base_rpc=8545
-    local base_p2p=30303
-    local base_discv5=31303
-    local base_consensus=30400
-    local base_authrpc=8551
-    local base_metrics=9101
+    local base_rpc=$((8545 + PORT_OFFSET))
+    local base_p2p=$((30303 + PORT_OFFSET))
+    local base_discv5=$((31303 + PORT_OFFSET))
+    local base_consensus=$((30400 + PORT_OFFSET))
+    local base_authrpc=$((8551 + PORT_OFFSET))
+    local base_metrics=$((9101 + PORT_OFFSET))
 
     # Optional per-validator TEE enclave. Opt-in via OUTBE_TEE_ENCLAVE=1 (binary
     # auto-detected in ./target, or set OUTBE_TEE_ENCLAVE_BINARY). When enabled,
@@ -215,9 +220,12 @@ do_start() {
             # clean re-bootstrap. Offset by 1 so the seed is never all-zero.
             local tee_dkg_seed
             tee_dkg_seed=$(printf '%064x' "$((i + 1))")
-            local tee_port=$((7000 + i))
+            local tee_port=$((7000 + PORT_OFFSET + i))
             local tee_endpoint="127.0.0.1:$tee_port"
-            local tee_ctr="outbe-tee-gramine-$i"
+            # Tag the container with PORT_OFFSET so parallel localnets get
+            # distinct names (`outbe-tee-gramine-<offset>-<i>`) and each run only
+            # tears down its own enclaves.
+            local tee_ctr="outbe-tee-gramine-${PORT_OFFSET}-$i"
             local -a sgx_dev=()
             # Pass the SGX device only for the production binary. In mock mode the
             # enclave is the EMULATOR (gramine-direct, no SGX): withholding the

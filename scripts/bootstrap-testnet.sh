@@ -19,6 +19,10 @@ set -euo pipefail
 NUM_VALIDATORS="${1:?Usage: $0 <num_validators> <output_dir> [seed_file]}"
 OUTPUT_DIR="${2:?Usage: $0 <num_validators> <output_dir> [seed_file]}"
 OUTBE_CONSENSUS_HOST_PATTERN="${OUTBE_CONSENSUS_HOST_PATTERN:-127.0.0.1}"
+# Uniform port shift so multiple localnets can run in parallel. It is baked into
+# the consensus p2p addresses (validators.json → genesis) and the reth bootnodes
+# below; run-testnet.sh must launch with the SAME PORT_OFFSET.
+PORT_OFFSET="${PORT_OFFSET:-0}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SEED_ARG="${3:-$SCRIPT_DIR/seed-testnet.json}"
 if [ "$SEED_ARG" = "none" ]; then
@@ -86,20 +90,42 @@ mkdir -p "$OUTPUT_DIR"
 # Step 1: DKG bootstrap
 echo "--- Step 1: DKG Bootstrap ---"
 "$OUTBE_CHAIN_BINARY" dkg bootstrap --output-dir "$OUTPUT_DIR" --validators "$NUM_VALIDATORS"
-if [ "$OUTBE_CONSENSUS_HOST_PATTERN" != "127.0.0.1" ]; then
-    echo "  Rewriting validator consensus P2P hosts with pattern: $OUTBE_CONSENSUS_HOST_PATTERN"
-    python3 - "$OUTPUT_DIR/validators.json" "$OUTBE_CONSENSUS_HOST_PATTERN" <<'PY'
+if [ "$OUTBE_CONSENSUS_HOST_PATTERN" != "127.0.0.1" ] || [ "$PORT_OFFSET" != "0" ]; then
+    echo "  Rewriting consensus/reth p2p endpoints (host pattern: $OUTBE_CONSENSUS_HOST_PATTERN, port offset: $PORT_OFFSET)"
+    OUTBE_PORT_OFFSET="$PORT_OFFSET" python3 - \
+        "$OUTPUT_DIR/validators.json" \
+        "$OUTBE_CONSENSUS_HOST_PATTERN" \
+        "$OUTPUT_DIR/reth-bootnodes.txt" <<'PY'
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
+CONSENSUS_BASE = 30400
+offset = int(os.environ.get("OUTBE_PORT_OFFSET", "0"))
+
+validators_path = Path(sys.argv[1])
 pattern = sys.argv[2]
-validators = json.loads(path.read_text())
+bootnodes_path = Path(sys.argv[3])
+
+# Consensus p2p_address: host from the pattern, port shifted by the offset. This
+# feeds seed_genesis.py -> the on-chain ValidatorSet, which every node reads to
+# resolve consensus peers; it must match run-testnet.sh's --consensus.listen-addr.
+validators = json.loads(validators_path.read_text())
 for i, entry in enumerate(validators):
     host = pattern.replace("{i}", str(i)).replace("%d", str(i))
-    entry["p2p_address"] = f"{host}:{30400 + i}"
-path.write_text(json.dumps(validators, indent=2) + "\n")
+    entry["p2p_address"] = f"{host}:{CONSENSUS_BASE + offset + i}"
+validators_path.write_text(json.dumps(validators, indent=2) + "\n")
+
+# Reth bootnode enode ports shift by the same offset (identity/host preserved).
+# Each line already encodes its validator's base port, so add the offset in place.
+if offset and bootnodes_path.exists():
+    lines = []
+    for line in bootnodes_path.read_text().splitlines():
+        m = re.match(r"^(enode://[^@]+@[^:]+:)(\d+)\s*$", line)
+        lines.append(f"{m.group(1)}{int(m.group(2)) + offset}" if m else line)
+    bootnodes_path.write_text("\n".join(lines) + "\n")
 PY
 fi
 echo
@@ -230,12 +256,12 @@ echo
 # Step 3: Print startup commands
 echo "--- Startup Commands ---"
 echo
-BASE_RETH_P2P_PORT=30303
-BASE_RETH_DISCV5_PORT=31303
-BASE_CONSENSUS_PORT=30400
-BASE_RPC_PORT=8545
-BASE_AUTH_RPC_PORT=8551
-BASE_METRICS_PORT=9101
+BASE_RETH_P2P_PORT=$((30303 + PORT_OFFSET))
+BASE_RETH_DISCV5_PORT=$((31303 + PORT_OFFSET))
+BASE_CONSENSUS_PORT=$((30400 + PORT_OFFSET))
+BASE_RPC_PORT=$((8545 + PORT_OFFSET))
+BASE_AUTH_RPC_PORT=$((8551 + PORT_OFFSET))
+BASE_METRICS_PORT=$((9101 + PORT_OFFSET))
 RETH_BOOTNODES_FILE="${RETH_BOOTNODES_FILE:-$OUTPUT_DIR/reth-bootnodes.txt}"
 
 for i in $(seq 0 $((NUM_VALIDATORS - 1))); do

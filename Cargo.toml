@@ -55,6 +55,8 @@ members = [
     "bin/outbe-cli",
     "bin/outbe-feeder",
     "bin/outbe-tee-enclave",
+    # testing
+    "crates/testing/e2e-harness",
 ]
 resolver = "2"
 

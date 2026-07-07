@@ -1,0 +1,47 @@
+[package]
+name = "outbe-e2e-harness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# e2e harness. The scenarios are Gherkin fixtures under `features/`; the step
+# code behind them drives the `world/` handles. Chain reads/sends are native
+# (alloy provider + `sol!`); the committee validators, joiner, followers, and
+# their enclave containers are Rust-owned processes (no `run-testnet.sh`/`nohup`).
+# Bootstrap keeps two one-shot subprocesses (`outbe-chain dkg bootstrap` +
+# `python3 seed_genesis.py`); governance/tribute sends go through `outbe-cli` (the
+# product CLI under test). It replaces the glue that lived in `scripts/e2e/lib.sh`.
+
+[dependencies]
+# The World type and step definitions live in `src/` (so `run()` can register
+# them), so cucumber is a normal dependency, not dev-only.
+cucumber = "0.21"
+xshell = "0.2"
+clap.workspace = true
+futures.workspace = true
+tokio.workspace = true
+eyre.workspace = true
+serde_json.workspace = true
+# Genesis `genesisTime` ISO-8601 formatting (bootstrap glue ported from `date -u`).
+time = { workspace = true, features = ["formatting"] }
+
+# Native JSON-RPC (reads + local-signer sends), replacing the `cast` shell-outs.
+# Mirrors the canonical provider client in `bin/outbe-feeder`.
+alloy-primitives = { workspace = true, features = ["std"] }
+alloy-eips.workspace = true
+alloy-sol-types = { workspace = true, features = ["std"] }
+alloy-provider.workspace = true
+alloy-signer.workspace = true
+alloy-signer-local.workspace = true
+alloy-network.workspace = true
+alloy-rpc-types.workspace = true
+
+# The e2e runner is a binary: the CLI defines the environment (validators, TEE
+# mode, sudo); Gherkin tags define each scenario's requirements.
+[[bin]]
+name = "outbe-e2e"
+path = "src/main.rs"
+
+[lints]
+workspace = true
