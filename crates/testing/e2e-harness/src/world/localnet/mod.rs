@@ -23,7 +23,7 @@ mod probes;
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -217,6 +217,27 @@ impl Localnet {
         self.sh().sudo_best_effort("bash", &["-c", &tee_sweep]);
     }
 
+    /// Remove `cfg.dir` (this localnet's scenario dir, or the whole run dir when
+    /// built from the run-level [`Config`]). Already-gone is success.
+    ///
+    /// `validator-<i>/tee` is the enclave container's only writable mount
+    /// (`proc::spawn_enclave`), so under `--sudo` it is the only thing this user
+    /// can't unlink — drop those with `sudo rm` first. Everything else the
+    /// harness created itself, and a failure to remove it is a real error.
+    pub fn wipe(&self) -> Result<()> {
+        if !self.cfg.dir.exists() {
+            return Ok(());
+        }
+        if self.cfg.sudo {
+            for tee in sealed_dirs(&self.cfg.dir) {
+                self.sh()
+                    .sudo_best_effort("rm", &["-rf", &tee.display().to_string()]);
+            }
+        }
+        fs::remove_dir_all(&self.cfg.dir)
+            .wrap_err_with(|| format!("wiping data dir {}", self.dir()))
+    }
+
     /// Pre-run reset: shut everything down AND wipe the data dir so the next
     /// bootstrap starts from a clean slate.
     pub fn cleanup(&mut self) -> Result<()> {
@@ -225,17 +246,7 @@ impl Localnet {
         // subdir doesn't exist yet, so there is nothing to settle for.
         let reclaiming = self.cfg.dir.exists();
         self.shutdown();
-        match fs::remove_dir_all(&self.cfg.dir) {
-            Ok(()) => {}
-            // Already gone — nothing to wipe.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            // A prior sudo run may have left root-owned artifacts; fall back to
-            // `sudo rm` when running privileged.
-            Err(_) if self.cfg.sudo => {
-                self.sh().sudo_best_effort("rm", &["-rf", &self.dir()]);
-            }
-            Err(e) => return Err(eyre::eyre!("wiping data dir {}: {e}", self.dir())),
-        }
+        self.wipe()?;
         if reclaiming {
             sleep(Duration::from_secs(1));
         }
@@ -254,6 +265,40 @@ impl Localnet {
         self.shutdown();
         Ok(())
     }
+}
+
+/// The sealed-state dirs under `root` — the only paths the (root) enclave
+/// container writes. `root` is either a scenario dir (`validator-<i>/tee`) or a
+/// run dir (`scenario-<n>/validator-<i>/tee`); both shapes are checked.
+///
+/// Deliberately not a recursive walk: `validator-<i>/data` holds the reth MDBX
+/// store, and descending into it would cost far more than the two `read_dir`s
+/// this needs.
+fn sealed_dirs(root: &Path) -> Vec<PathBuf> {
+    fn push_validator_tee(base: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(base) else {
+            return;
+        };
+        for e in entries.flatten() {
+            if e.file_name().to_string_lossy().starts_with("validator-") {
+                let tee = e.path().join("tee");
+                if tee.is_dir() {
+                    out.push(tee);
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    push_validator_tee(root, &mut out);
+    if let Ok(entries) = fs::read_dir(root) {
+        for e in entries.flatten() {
+            if e.file_name().to_string_lossy().starts_with("scenario-") {
+                push_validator_tee(&e.path(), &mut out);
+            }
+        }
+    }
+    out
 }
 
 /// The chain's current worldwide-day key (`YYYYMMDD`), matching how
@@ -285,6 +330,30 @@ fn ymd_utc(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Both layouts, and nothing else — in particular not `validator-*/data`.
+    #[test]
+    fn sealed_dirs_finds_only_enclave_mounts() {
+        let root = std::env::temp_dir().join(format!("outbe-sealed-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        // run-dir shape
+        fs::create_dir_all(root.join("scenario-1/validator-0/tee")).expect("mk");
+        fs::create_dir_all(root.join("scenario-1/validator-0/data")).expect("mk");
+        // scenario-dir shape (a Localnet wiping its own dir)
+        fs::create_dir_all(root.join("validator-7/tee")).expect("mk");
+        fs::create_dir_all(root.join("validator-7/logs")).expect("mk");
+
+        let mut found = sealed_dirs(&root);
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                root.join("scenario-1/validator-0/tee"),
+                root.join("validator-7/tee"),
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn worldwide_day_is_eight_digits() {

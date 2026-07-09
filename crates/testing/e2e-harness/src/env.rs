@@ -14,6 +14,7 @@
 //!   - `todo`             → always skipped (unimplemented stub), regardless of `--all`.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 use cucumber::gherkin::{Feature, Scenario};
@@ -56,7 +57,8 @@ pub struct EnvCli {
     /// metrics, consensus) is scanned for: the allocator walks forward past any
     /// busy port, so a parallel or coexisting run finds a free set. (Each parallel
     /// run still needs its own `--data-dir`.) With this flag the blocks are the
-    /// static `8545 + i * 7` layout and a busy port surfaces as a launch failure.
+    /// static `18545 + i * 7` layout and a busy port surfaces as a launch failure.
+    /// Either way each scenario's blocks sit above the previous scenario's.
     #[arg(long)]
     pub no_resolve_ports: bool,
 
@@ -77,6 +79,11 @@ pub struct EnvCli {
     /// Off by default: that output is captured and only surfaced on failure.
     #[arg(long)]
     pub debug: bool,
+
+    /// Keep the run's data dir even when every scenario passed. A run with any
+    /// failure always keeps it, so its chain state and logs stay inspectable.
+    #[arg(long)]
+    pub no_cleanup: bool,
 
     /// Repo root (working dir for scripts/binaries). Defaults to this crate's
     /// workspace root.
@@ -117,10 +124,13 @@ pub struct EnvCli {
 #[derive(Clone, Debug)]
 pub struct Environment {
     pub validators: usize,
-    /// Per-node port blocks. The committee's are allocated up front (their
-    /// consensus/p2p ports get baked into genesis); the joiner and followers
-    /// take the next block on first use.
+    /// Per-node port blocks, shared by every scenario's `World`. Each scenario
+    /// calls [`Ports::start_scenario`], which re-seeds the committee above the
+    /// previous scenario's blocks; the joiner and followers take the next block
+    /// on first use.
     pub(crate) ports: Ports,
+    /// Keep the run's data dir even on a fully successful run.
+    pub no_cleanup: bool,
     pub tee_mode: TeeMode,
     pub sudo: bool,
     pub all: bool,
@@ -142,8 +152,8 @@ impl Environment {
         let repo = cli.repo.clone().unwrap_or_else(default_repo);
         Self {
             validators: cli.validators,
-            ports: Ports::new(cli.validators, !cli.no_resolve_ports)
-                .expect("allocate localnet port blocks"),
+            ports: Ports::new(!cli.no_resolve_ports),
+            no_cleanup: cli.no_cleanup,
             tee_mode: cli.tee,
             sudo: !cli.no_sudo,
             all: cli.all,
@@ -181,9 +191,11 @@ impl Default for Environment {
     fn default() -> Self {
         Self::from_cli(&EnvCli {
             validators: 4,
-            // Unlike the CLI default, don't scan: a `Default` environment must be
-            // deterministic and must not bind sockets (it is used by unit tests).
+            // Unlike the CLI defaults, don't scan and never delete: a `Default`
+            // environment must be deterministic, must not bind sockets, and must
+            // not remove anything (it is used by unit tests).
             no_resolve_ports: true,
+            no_cleanup: true,
             tee: TeeMode::None,
             no_sudo: false,
             all: false,
@@ -209,6 +221,15 @@ fn default_repo() -> PathBuf {
 }
 
 static ENV: OnceLock<Environment> = OnceLock::new();
+
+static SCENARIO_SEQ: AtomicUsize = AtomicUsize::new(0);
+
+/// The 1-based id of the next scenario to build a `World`, naming its data
+/// subdir (`scenario-<id>`). Skipped scenarios never build a `World`, so ids
+/// count the scenarios that actually ran.
+pub(crate) fn next_scenario_id() -> usize {
+    SCENARIO_SEQ.fetch_add(1, Ordering::Relaxed) + 1
+}
 
 /// Install the resolved environment (called once by `run()` before cucumber
 /// constructs any `World`).

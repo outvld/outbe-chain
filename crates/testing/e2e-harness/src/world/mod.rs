@@ -38,7 +38,12 @@ pub struct World {
 impl Default for World {
     fn default() -> Self {
         let env = environment();
-        let cfg = Config::resolve(&env);
+        let id = crate::env::next_scenario_id();
+        // Before the `Config`, whose `rpc0` reads this scenario's validator-0 port.
+        env.ports
+            .start_scenario(env.validators)
+            .expect("allocate this scenario's port blocks");
+        let cfg = Config::for_scenario(&env, id);
         Self {
             localnet: Localnet::new(cfg.clone()),
             rpc: Rpc::new(cfg.clone()),

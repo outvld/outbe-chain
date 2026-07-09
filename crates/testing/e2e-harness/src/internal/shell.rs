@@ -27,23 +27,53 @@ impl<'a> Sh<'a> {
 
     /// Run `outbe-cli <args>` (caller supplies global `--rpc-url` / `--private-key`)
     /// and capture stdout.
+    ///
+    /// A non-zero exit is **not** an error — callers parse stdout and several
+    /// treat an empty result as "not available". But it is always reported, with
+    /// the command and both streams, so a failing send is never silent. (It used
+    /// to discard stderr unless `--debug`, which left the caller failing later
+    /// with no trace of why.)
     pub fn cli<I, S>(&self, args: I) -> Result<String>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
         let sh = self.shell()?;
-        let mut cmd = sh
+        // Collected so the same argv can be both passed and logged.
+        let argv: Vec<String> = args
+            .into_iter()
+            .map(|a| a.as_ref().to_string_lossy().into_owned())
+            .collect();
+        let out = sh
             .cmd(&self.cfg.bin_cli)
-            .args(args)
+            .args(&argv)
             .env("PATH", &self.cfg.path)
             .quiet()
-            .ignore_status();
-        if !self.cfg.debug {
-            cmd = cmd.ignore_stderr();
+            .ignore_status()
+            .output()?;
+
+        // `Cmd::read` strips one trailing newline; `Cmd::output` doesn't. Callers
+        // parse this stdout, so keep the old shape.
+        let mut stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        if stdout.ends_with('\n') {
+            stdout.pop();
+            if stdout.ends_with('\r') {
+                stdout.pop();
+            }
         }
-        let out = cmd.read()?;
-        Ok(out)
+
+        let cmdline = format!("{} {}", self.cfg.bin_cli.display(), argv.join(" "));
+        if !out.status.success() {
+            eprintln!(
+                "[cli] FAILED {cmdline}\n      exit: {}\n      stdout: {}\n      stderr: {}",
+                out.status,
+                stdout.trim(),
+                String::from_utf8_lossy(&out.stderr).trim(),
+            );
+        } else if self.cfg.debug {
+            eprintln!("[cli] {cmdline}");
+        }
+        Ok(stdout)
     }
 
     /// Run a raw command (program + args) under `sudo` unless `E2E_NO_SUDO`,

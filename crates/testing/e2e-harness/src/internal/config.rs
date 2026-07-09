@@ -50,7 +50,8 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    /// Build config entirely from the resolved CLI [`Environment`].
+    /// Run-level config: `dir` is the run dir itself. Used by the SIGINT teardown
+    /// sweep and the end-of-run wipe, both of which act on the whole run.
     pub fn resolve(env: &Environment) -> Self {
         Self {
             repo: env.repo.clone(),
@@ -69,6 +70,22 @@ impl Config {
             sudo: env.sudo,
             debug: env.debug,
         }
+    }
+
+    /// Scenario-level config: `dir` is `<run dir>/scenario-<id>`, so scenarios
+    /// never overwrite each other's genesis/keys/logs.
+    ///
+    /// `run_tag` deliberately still derives from the **run** dir: the enclave
+    /// container names and the teardown sweep are scoped to the run, so a SIGINT
+    /// (which only has the run-level [`Config`]) still matches every scenario's
+    /// containers.
+    ///
+    /// The caller must have advanced [`Ports::start_scenario`](crate::internal::ports::Ports::start_scenario)
+    /// first — `rpc0` below reads this scenario's validator-0 block.
+    pub fn for_scenario(env: &Environment, id: usize) -> Self {
+        let mut cfg = Self::resolve(env);
+        cfg.dir = env.data_dir.join(format!("scenario-{id}"));
+        cfg
     }
 
     /// HTTP RPC port for validator index `i`.
@@ -178,15 +195,31 @@ mod tests {
     #[test]
     fn accessors_serve_nodes_past_the_committee() {
         let env = Environment::default(); // 4 validators, no port scan
-        let cfg = Config::resolve(&env);
+        env.ports.start_scenario(env.validators).expect("seed");
+        let cfg = Config::for_scenario(&env, 1);
         let joiner = cfg.validators;
 
-        assert_eq!(cfg.primary_port(), 8545);
-        assert_eq!(cfg.tee_port(joiner), 8574);
-        assert_eq!(cfg.http_port(14), 8580);
-        assert_eq!(cfg.consensus_port(15), 8593);
+        assert_eq!(cfg.primary_port(), 18545);
+        assert_eq!(cfg.tee_port(joiner), 18574);
+        assert_eq!(cfg.http_port(14), 18580);
+        assert_eq!(cfg.consensus_port(15), 18593);
 
         // The committee size never moves, however many nodes are added.
         assert_eq!(cfg.validators, env.validators);
+    }
+
+    /// A scenario's data lives in its own subdir, but the enclave `run_tag` stays
+    /// the run's — the SIGINT sweep only ever sees the run-level `Config`.
+    #[test]
+    fn scenario_dir_is_nested_under_the_run_dir() {
+        let env = Environment::default();
+        env.ports.start_scenario(env.validators).expect("seed");
+        let run = Config::resolve(&env);
+        let scenario = Config::for_scenario(&env, 3);
+
+        assert_eq!(scenario.dir, env.data_dir.join("scenario-3"));
+        assert_eq!(scenario.run_tag, run.run_tag);
+        assert!(scenario.dir.starts_with(&run.dir));
+        assert_eq!(scenario.validator_dir(2), scenario.dir.join("validator-2"));
     }
 }

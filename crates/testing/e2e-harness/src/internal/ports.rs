@@ -3,10 +3,10 @@
 //! Every node owns one **contiguous block** of ports, one per service:
 //!
 //! ```text
-//! offset:   0     1     2      3       4        5        6
-//!         http   tee   p2p   discv5  authrpc  metrics  consensus
-//! node 0: 8545  8546  8547   8548    8549     8550     8551
-//! node 1: 8552  8553  8554   8555    8556     8557     8558
+//! offset:    0      1      2       3        4        5         6
+//!          http    tee    p2p   discv5  authrpc  metrics  consensus
+//! node 0: 18545  18546  18547   18548    18549    18550     18551
+//! node 1: 18552  18553  18554   18555    18556    18557     18558
 //! ```
 //!
 //! Blocks are handed out from a cursor that only ever moves forward, so they are
@@ -24,8 +24,13 @@
 //! node whose first candidate port is busy shifts only itself, never the nodes
 //! allocated after it.
 //!
+//! [`Ports::start_scenario`] forgets the node→block map but leaves the cursor
+//! alone, so each scenario's nodes land above the previous scenario's. A port is
+//! never reused within a process, which keeps a torn-down node's lingering socket
+//! (or a peer still dialing it) from bleeding into the next scenario.
+//!
 //! The committee's consensus/p2p ports are baked into `validators.json`/genesis at
-//! bootstrap, so blocks `0..n` are allocated once (before bootstrap) and reused
+//! bootstrap, so blocks `0..n` are allocated at the scenario's start and reused
 //! unchanged at launch. The cursor never rewinds, so a later block can't alias a
 //! genesis-baked one.
 
@@ -36,7 +41,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use eyre::{bail, Result};
 
 /// First port the allocator considers.
-pub(crate) const NODE_BASE: u16 = 8545;
+pub(crate) const NODE_BASE: u16 = 18545;
 
 /// Which transport(s) a service needs free for the probe to consider a port open.
 #[derive(Clone, Copy)]
@@ -118,23 +123,30 @@ struct Resolver {
 }
 
 impl Ports {
-    /// Allocate the committee's blocks (`0..n`) up front, so their consensus/p2p
-    /// ports are fixed before bootstrap bakes them into genesis.
+    /// An allocator with nothing handed out yet, its cursor at [`NODE_BASE`].
     ///
     /// `scan` probes the OS for each free window (the default); `--no-resolve-ports`
     /// turns it off, yielding the static `NODE_BASE + i * BLOCK` layout.
-    pub fn new(n: usize, scan: bool) -> Result<Self> {
-        let mut r = Resolver {
-            blocks: HashMap::new(),
-            cursor: NODE_BASE,
-            scan,
-        };
-        for i in 0..n {
-            r.block_start(i)?;
+    pub fn new(scan: bool) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Resolver {
+                blocks: HashMap::new(),
+                cursor: NODE_BASE,
+                scan,
+            })),
         }
-        Ok(Self {
-            inner: Arc::new(Mutex::new(r)),
-        })
+    }
+
+    /// Begin a scenario: forget the previous one's node→block map, then allocate
+    /// the committee's blocks (`0..n`) so their consensus/p2p ports are fixed
+    /// before bootstrap bakes them into genesis.
+    ///
+    /// The cursor is untouched, so this scenario's blocks sit above the last one's
+    /// and no port is reused within the process.
+    pub fn start_scenario(&self, n: usize) -> Result<()> {
+        let mut r = lock(&self.inner);
+        r.blocks.clear();
+        (0..n).try_for_each(|i| r.block_start(i).map(drop))
     }
 
     /// The port node `i` uses for `svc`, allocating its block on first use.
@@ -217,19 +229,23 @@ mod tests {
     use super::Service::*;
     use super::*;
 
-    /// The static layout: no probing, block `i` at `NODE_BASE + i * BLOCK`.
+    /// One scenario's worth of the static layout: no probing, block `i` at
+    /// `NODE_BASE + i * BLOCK`.
     fn static_ports(n: usize) -> Ports {
-        Ports::new(n, false).expect("static layout cannot exhaust the port space")
+        let p = Ports::new(false);
+        p.start_scenario(n)
+            .expect("static layout cannot exhaust the port space");
+        p
     }
 
     #[test]
     fn unscanned_layout_is_block_per_node() {
         let p = static_ports(3);
-        assert_eq!(p.port(Http, 0), 8545);
-        assert_eq!(p.port(Tee, 0), 8546);
-        assert_eq!(p.port(Consensus, 0), 8551);
-        assert_eq!(p.port(Http, 1), 8552);
-        assert_eq!(p.port(Tee, 1), 8553);
+        assert_eq!(p.port(Http, 0), 18545);
+        assert_eq!(p.port(Tee, 0), 18546);
+        assert_eq!(p.port(Consensus, 0), 18551);
+        assert_eq!(p.port(Http, 1), 18552);
+        assert_eq!(p.port(Tee, 1), 18553);
     }
 
     /// The reported bug: a node index past the committee used to panic. Blocks
@@ -237,9 +253,32 @@ mod tests {
     #[test]
     fn grown_index_does_not_panic() {
         let p = static_ports(4);
-        assert_eq!(p.port(Http, 4), 8573, "joiner");
-        assert_eq!(p.port(Http, 14), 8580, "follower1");
-        assert_eq!(p.port(Tee, 15), 8588, "follower2");
+        assert_eq!(p.port(Http, 4), 18573, "joiner");
+        assert_eq!(p.port(Http, 14), 18580, "follower1");
+        assert_eq!(p.port(Tee, 15), 18588, "follower2");
+    }
+
+    /// A scenario never lands on a port the previous one used, however many nodes
+    /// that one grew.
+    #[test]
+    fn scenarios_never_reuse_ports() {
+        let p = static_ports(2);
+        let first: Vec<u16> = [0, 1, 2, 14]
+            .iter()
+            .flat_map(|&i| Service::ALL.map(|svc| p.port(svc, i)))
+            .collect();
+        let high = *first.iter().max().expect("ports");
+
+        p.start_scenario(2).expect("second scenario");
+        assert_ne!(p.port(Http, 0), first[0], "validator-0 must move");
+        for i in [0, 1, 2, 14] {
+            for svc in Service::ALL {
+                assert!(
+                    p.port(svc, i) > high,
+                    "{svc:?} of node {i} reuses a port from the previous scenario"
+                );
+            }
+        }
     }
 
     /// Guards the old layout's http[6] == authrpc[0] == 8551 collision.
@@ -269,7 +308,8 @@ mod tests {
 
     #[test]
     fn port_is_memoized() {
-        let p = Ports::new(1, true).expect("scan");
+        let p = Ports::new(true);
+        p.start_scenario(1).expect("scan");
         assert_eq!(p.port(Http, 9), p.port(Http, 9));
     }
 
@@ -279,7 +319,8 @@ mod tests {
     fn scan_shifts_whole_block_past_a_held_port() {
         let held = TcpListener::bind(("127.0.0.1", NODE_BASE));
         if held.is_ok() {
-            let p = Ports::new(2, true).expect("scan");
+            let p = Ports::new(true);
+            p.start_scenario(2).expect("scan");
             assert_ne!(p.port(Http, 0), NODE_BASE, "should skip the held port");
             assert_eq!(
                 p.port(Consensus, 0) - p.port(Http, 0),

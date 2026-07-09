@@ -22,6 +22,7 @@ pub mod world;
 mod internal;
 
 use cucumber::cli;
+use cucumber::writer::Stats;
 use cucumber::World as _;
 use futures::FutureExt as _;
 
@@ -87,11 +88,12 @@ pub async fn run() {
     let opts = cli::Opts::<_, _, _, EnvCli>::parsed();
     let mut environment = Environment::from_cli(&opts.custom);
 
-    // Give each run its own data subdir under the base `--data-dir`. The enclave
-    // container tag and the teardown sweep both derive from the data dir, so this
-    // one move also makes this run's docker names + sweep scope unique — two runs
-    // (or a prior crashed one) never touch each other's nodes/containers, with no
-    // manual `--data-dir` juggling.
+    // Give each run its own data subdir under the base `--data-dir`, and each
+    // scenario a `scenario-<n>` subdir under that (see `Config::for_scenario`).
+    // The enclave container tag and the teardown sweep both derive from the run
+    // dir, so this one move also makes this run's docker names + sweep scope
+    // unique — two runs (or a prior crashed one) never touch each other's
+    // nodes/containers, with no manual `--data-dir` juggling.
     let run_id = {
         let secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -111,9 +113,10 @@ pub async fn run() {
 
     // Hand an owned clone to each `'static` closure.
     let env_hook = environment.clone();
-    let env_filter = environment;
+    let env_filter = environment.clone();
+    let env_cleanup = environment;
 
-    World::cucumber()
+    let writer = World::cucumber()
         .max_concurrent_scenarios(1)
         .before(move |feature, _rule, scenario, _world| {
             // Only reachable for unmet scenarios in `--all` mode (the filter
@@ -142,7 +145,10 @@ pub async fn run() {
         .with_cli(opts)
         // Absolute path so the runner finds fixtures regardless of CWD (cargo
         // run executes from the workspace root).
-        .filter_run_and_exit(
+        //
+        // `filter_run` rather than `filter_run_and_exit`: the latter panics on
+        // failure and never returns, leaving nowhere to hang the cleanup below.
+        .filter_run(
             concat!(env!("CARGO_MANIFEST_DIR"), "/features"),
             move |feature, _rule, scenario| match decide(feature, scenario, &env_filter) {
                 Decision::Run => true,
@@ -153,4 +159,43 @@ pub async fn run() {
             },
         )
         .await;
+
+    // `execution_has_failed` covers failed steps, parsing errors, and hook errors
+    // — so `--all`, which fails unmet scenarios by panicking in the `before` hook,
+    // keeps its data dir too.
+    let dir = env_cleanup.data_dir.display().to_string();
+    if writer.execution_has_failed() {
+        eprintln!("outbe-e2e: {}", failure_summary(&writer));
+        eprintln!("outbe-e2e: data dir kept at {dir}");
+        std::process::exit(1);
+    }
+    if !env_cleanup.no_cleanup {
+        // Every node and enclave is already down (the `after` hook tore each
+        // scenario down), so nothing holds the logs open.
+        match Localnet::new(Config::resolve(&env_cleanup)).wipe() {
+            Ok(()) => eprintln!("outbe-e2e: removed data dir {dir}"),
+            Err(e) => eprintln!("outbe-e2e: could not remove data dir {dir}: {e}"),
+        }
+    }
+}
+
+/// The failure tally `filter_run_and_exit` would have panicked with.
+fn failure_summary(writer: &impl Stats<World>) -> String {
+    let counts = [
+        ("step", writer.failed_steps()),
+        ("parsing error", writer.parsing_errors()),
+        ("hook error", writer.hook_errors()),
+    ];
+    counts
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(what, n)| {
+            let s = if *n > 1 { "s" } else { "" };
+            match *what {
+                "step" => format!("{n} step{s} failed"),
+                _ => format!("{n} {what}{s}"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
