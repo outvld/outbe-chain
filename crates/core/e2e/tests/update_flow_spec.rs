@@ -17,6 +17,7 @@ use outbe_update::lifecycle::UpdateLifecycle;
 use outbe_update::precompile::{dispatch, IUpdate};
 use outbe_update::schema::Update;
 use outbe_update::state::ScheduledUpdateStatus;
+use outbe_primitives::chain::DEVNET_CHAIN_ID;
 use outbe_update::payload::encode_schedule_update_json;
 use outbe_update::{encode_protocol_version, ProtocolVersion};
 use serde_json::Value;
@@ -26,7 +27,7 @@ use outbe_vote::lifecycle::VoteLifecycle;
 use outbe_vote::schema::ProposalStatus;
 use outbe_vote::schema::Vote;
 
-const CHAIN_ID: u64 = 1;
+const CHAIN_ID: u64 = DEVNET_CHAIN_ID;
 const PROPOSER: Address = address!("0x1111111111111111111111111111111111111111");
 const VOTER_A: Address = address!("0x2222222222222222222222222222222222222222");
 const VOTER_B: Address = address!("0x3333333333333333333333333333333333333333");

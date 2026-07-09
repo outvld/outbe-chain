@@ -53,7 +53,7 @@ Write calls require signed EVM transactions to `VOTE_ADDRESS` with zero value:
 ```bash
 VOTE_ADDR=0x000000000000000000000000000000000000EE0C
 UPDATE_ADDR=0x000000000000000000000000000000000000EE0B
-PAYLOAD='{"version":16777218,"activationHeight":12345,"info":"v1.2 rollout"}'
+PAYLOAD='{"version":"1.2","activationHeight":12345,"info":"v1.2 rollout"}'
 
 outbe-cli --private-key "$VALIDATOR_KEY" vote propose \
   --target-module "$UPDATE_ADDR" \

@@ -15,10 +15,9 @@ use crate::world::World;
 /// (`MIN_ACTIVATION_BUFFER`, update_operator_flow.sh:30).
 const MIN_ACTIVATION_BUFFER: u64 = 0;
 
-/// Encoded `v1.0` (`u8 major << 24 | u24 minor`). Workspace `PROTOCOL_VERSION`
-/// is currently `v0.1` (raw `1`); this is strictly greater and must Fatal at
-/// activation without bumping the binary.
-const UNSUPPORTED_PROTOCOL_VERSION: u64 = 1u64 << 24;
+/// Encoded `v3.0` (`u8 major << 24 | u24 minor`). Localnet/testnet activation
+/// ceiling is `v2.3`; this is strictly greater and must Fatal at activation.
+const UNSUPPORTED_PROTOCOL_VERSION: u64 = 3u64 << 24;
 
 /// Propose a bump to the next protocol version from an operator
 /// (update_operator_flow.sh:234-251).
@@ -28,8 +27,8 @@ fn propose_update(world: &mut World, name: String) {
     propose_update_version(world, &name, active + 1, "e2e update operator smoke");
 }
 
-/// Propose a protocol version the running binary cannot activate
-/// (`version > PROTOCOL_VERSION`). Scheduling is allowed; activation is Fatal.
+/// Propose a protocol version above the testnet/devnet activation ceiling
+/// (`version > 2.3`). Scheduling is allowed; activation is Fatal.
 #[when(expr = "operator {string} proposes an update to an unsupported protocol version")]
 fn propose_unsupported_update(world: &mut World, name: String) {
     let active = world.rpc.active_version().expect("read active version");
@@ -50,9 +49,11 @@ fn propose_update_version(world: &mut World, name: &str, version: u64, info: &st
     let port = world.validators.primary_port();
     let head = world.rpc.head(port).expect("read head");
     let activation = head + world.state.voting_window + MIN_ACTIVATION_BUFFER + 30;
+    // VoteTarget JSON expects `"major.minor"`; on-chain ABI still uses packed u32.
+    let version_str = format!("{}.{}", version >> 24, version & 0x00FF_FFFF);
 
     let payload = serde_json::json!({
-        "version": version,
+        "version": version_str,
         "activationHeight": activation,
         "info": info,
     })

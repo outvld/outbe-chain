@@ -139,7 +139,7 @@ fn invalid_update_payload_is_rejected_at_creation() {
             .create_proposal(
                 PROPOSER,
                 UPDATE_ADDRESS,
-                r#"{"version":0,"activationHeight":1000,"info":""}"#,
+                r#"{"version":"0.0","activationHeight":1000,"info":""}"#,
                 200,
                 &VOTE_TARGET_REGISTRY,
             )

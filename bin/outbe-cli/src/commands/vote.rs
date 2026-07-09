@@ -164,7 +164,7 @@ mod tests {
     use outbe_primitives::addresses::UPDATE_ADDRESS;
     use std::collections::HashMap;
 
-    const SAMPLE_PAYLOAD: &str = r#"{"version":65538,"activationHeight":1000,"info":"notes"}"#;
+    const SAMPLE_PAYLOAD: &str = r#"{"version":"1.2","activationHeight":1000,"info":"notes"}"#;
 
     #[test]
     fn test_cli_parse_vote_status() {

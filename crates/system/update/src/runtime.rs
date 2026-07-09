@@ -5,7 +5,7 @@ use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::{PrecompileError, Result};
 
 use crate::constants::{
-    min_activation_buffer, MAX_WAITING_FOR_ACTIVATION_UPDATES, PROTOCOL_VERSION,
+    max_activatable_version, min_activation_buffer, MAX_WAITING_FOR_ACTIVATION_UPDATES,
 };
 use crate::errors::UpdateError;
 use crate::handlers::UpgradeHandlerRegistry;
@@ -116,11 +116,12 @@ impl Update<'_> {
             return self.cancel_scheduled_update(proposal_id);
         }
 
-        if scheduled.version > PROTOCOL_VERSION {
+        let ceiling = max_activatable_version(self.storage.chain_id()?);
+        if scheduled.version > ceiling {
             return Err(PrecompileError::Fatal(format!(
                 "cannot activate protocol version {}: binary supports at most {}",
                 format_protocol_version(scheduled.version),
-                format_protocol_version(PROTOCOL_VERSION),
+                format_protocol_version(ceiling),
             )));
         }
 

@@ -199,7 +199,7 @@ Operator flow:
 
 ```bash
 UPDATE_ADDR=0x000000000000000000000000000000000000EE0B
-PAYLOAD='{"version":4,"activationHeight":12345,"info":"v1.2 rollout"}'
+PAYLOAD='{"version":"1.2","activationHeight":12345,"info":"v1.2 rollout"}'
 
 outbe-cli --private-key "$VALIDATOR_KEY" vote propose \
   --target-module "$UPDATE_ADDR" \

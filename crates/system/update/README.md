@@ -36,7 +36,7 @@ unset/pre-upgrade. Display form is `v{major}.{minor}`.
 The accepted payload is:
 
 ```json
-{"version":16777218,"activationHeight":12345,"info":"release notes or operator note"}
+{"version":"1.2","activationHeight":12345,"info":"release notes or operator note"}
 ```
 
 Rules:
@@ -104,9 +104,12 @@ fail fast when a local binary is older than the on-chain active protocol version
 This check is run before consensus/RPC startup.
 
 At activation height, `activate_scheduled_update` also requires
-`scheduled.version <= PROTOCOL_VERSION`. A scheduled version newer than the
-binary returns `PrecompileError::Fatal` and aborts the block — nodes must upgrade
-before that height can be applied.
+`scheduled.version <= max_activatable_version(chain_id)`. On production /
+unknown chains that ceiling is the binary `PROTOCOL_VERSION`. On
+devnet/testnet it is raised to `v2.3` so integration tests can activate
+versions ahead of the workspace package version. A scheduled version above
+the ceiling returns `PrecompileError::Fatal` and aborts the block — nodes must
+upgrade (or stay within the test ceiling) before that height can be applied.
 
 Use `warn_missing_handlers_for_waiting_updates(waiting, registry)` to warn about
 scheduled versions that have no migration handler. Missing handlers are warnings,
