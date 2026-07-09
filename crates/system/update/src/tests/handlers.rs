@@ -12,7 +12,7 @@ use crate::schema::Update;
 use crate::state::ScheduledUpdateInfo;
 use crate::ProtocolVersion;
 
-use super::{block_ctx, min_activation, schedule_update, with_update, with_update_provider, V1_2};
+use super::{block_ctx, min_activation, schedule_update, with_update, with_update_provider, PV};
 
 static EMPTY_UPGRADE_HANDLER_REGISTRY: UpgradeHandlerRegistry = UpgradeHandlerRegistry::new(&[]);
 
@@ -23,7 +23,7 @@ struct RegisteredCountingHandler;
 
 impl UpgradeHandler for RegisteredCountingHandler {
     fn version(&self) -> ProtocolVersion {
-        V1_2
+        PV
     }
 
     fn label(&self) -> &'static str {
@@ -44,7 +44,7 @@ struct ReplayCountingHandler;
 
 impl UpgradeHandler for ReplayCountingHandler {
     fn version(&self) -> ProtocolVersion {
-        V1_2
+        PV
     }
 
     fn label(&self) -> &'static str {
@@ -65,7 +65,7 @@ struct FailingHandler;
 
 impl UpgradeHandler for FailingHandler {
     fn version(&self) -> ProtocolVersion {
-        V1_2
+        PV
     }
 
     fn label(&self) -> &'static str {
@@ -101,7 +101,7 @@ fn activation_without_handler_succeeds() {
         let current = 100u64;
         let activation = min_activation(current);
         let proposal_id = U256::from(1);
-        schedule_update(&mut update, proposal_id, V1_2, activation, "", current).unwrap();
+        schedule_update(&mut update, proposal_id, PV, activation, "", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         update
@@ -116,7 +116,7 @@ fn activation_without_handler_succeeds() {
                 .status,
             ScheduledUpdateStatus::Activated
         );
-        assert_eq!(get_active_version(storage).unwrap(), V1_2);
+        assert_eq!(get_active_version(storage).unwrap(), PV);
     });
 }
 
@@ -128,7 +128,7 @@ fn registered_handler_is_called_before_activation() {
         let current = 100u64;
         let activation = min_activation(current);
         let proposal_id = U256::from(1);
-        schedule_update(&mut update, proposal_id, V1_2, activation, "", current).unwrap();
+        schedule_update(&mut update, proposal_id, PV, activation, "", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         update
@@ -144,7 +144,7 @@ fn registered_handler_is_called_before_activation() {
                 .status,
             ScheduledUpdateStatus::Activated
         );
-        assert_eq!(get_active_version(storage).unwrap(), V1_2);
+        assert_eq!(get_active_version(storage).unwrap(), PV);
     });
 }
 
@@ -155,7 +155,7 @@ fn handler_failure_is_fatal_and_leaves_update_unactivated() {
         let current = 100u64;
         let activation = min_activation(current);
         let proposal_id = U256::from(1);
-        schedule_update(&mut update, proposal_id, V1_2, activation, "", current).unwrap();
+        schedule_update(&mut update, proposal_id, PV, activation, "", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         let err = update
@@ -174,7 +174,7 @@ fn handler_failure_is_fatal_and_leaves_update_unactivated() {
                 .status,
             ScheduledUpdateStatus::Scheduled
         );
-        assert_ne!(get_active_version(storage).unwrap(), V1_2);
+        assert_ne!(get_active_version(storage).unwrap(), PV);
     });
 }
 
@@ -186,7 +186,7 @@ fn activated_update_does_not_reinvoke_handler_on_replay() {
         let current = 100u64;
         let activation = min_activation(current);
         let proposal_id = U256::from(1);
-        schedule_update(&mut update, proposal_id, V1_2, activation, "", current).unwrap();
+        schedule_update(&mut update, proposal_id, PV, activation, "", current).unwrap();
 
         let ctx = block_ctx(storage.clone(), activation);
         update

@@ -103,6 +103,11 @@ Use `outbe_update::startup::assert_binary_protocol_compatible(active_version)` t
 fail fast when a local binary is older than the on-chain active protocol version.
 This check is run before consensus/RPC startup.
 
+At activation height, `activate_scheduled_update` also requires
+`scheduled.version <= PROTOCOL_VERSION`. A scheduled version newer than the
+binary returns `PrecompileError::Fatal` and aborts the block — nodes must upgrade
+before that height can be applied.
+
 Use `warn_missing_handlers_for_waiting_updates(waiting, registry)` to warn about
 scheduled versions that have no migration handler. Missing handlers are warnings,
 not startup failures, because version-only activation is valid.

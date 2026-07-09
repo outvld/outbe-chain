@@ -109,8 +109,9 @@ fn is_active_validator(voter: Address, active_validators: &[Address]) -> bool {
 }
 
 fn clamp_page(index: U256, count: U256) -> (usize, usize) {
-    let index = index.to::<u64>() as usize;
-    let count = count.to::<u64>().min(MAX_PAGE_SIZE) as usize;
+    // Saturating conversion: oversized ABI args must not panic the precompile.
+    let index = index.saturating_to::<usize>();
+    let count = count.saturating_to::<u64>().min(MAX_PAGE_SIZE) as usize;
     (index, count)
 }
 
@@ -224,7 +225,7 @@ impl<'storage> Vote<'storage> {
     }
 
     pub fn list_proposals(&self, index: U256, count: U256) -> Result<Vec<U256>> {
-        let total = self.proposal_count.read()?.to::<u64>() as usize;
+        let total = self.proposal_count.read()?.saturating_to::<usize>();
         let (index, count) = clamp_page(index, count);
         let mut result = Vec::new();
         for offset in 0..count {
@@ -243,7 +244,7 @@ impl<'storage> Vote<'storage> {
         index: U256,
         count: U256,
     ) -> Result<Vec<U256>> {
-        let total = self.proposal_count.read()?.to::<u64>() as usize;
+        let total = self.proposal_count.read()?.saturating_to::<usize>();
         let (start_index, page_size) = clamp_page(index, count);
         let mut matched = Vec::new();
         for id_num in 1..=total {

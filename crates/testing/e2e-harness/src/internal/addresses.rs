@@ -17,3 +17,5 @@ pub(crate) const TRIBUTE_ADDR: Address = address!("0x000000000000000000000000000
 pub(crate) const WWD_ADDR: Address = address!("0x000000000000000000000000000000000000100E");
 /// Update precompile (protocol-version governance).
 pub(crate) const UPDATE_ADDR: Address = address!("0x000000000000000000000000000000000000EE0B");
+/// Vote precompile (generic proposal/voting).
+pub(crate) const VOTE_ADDR: Address = address!("0x000000000000000000000000000000000000EE0C");

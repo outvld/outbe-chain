@@ -476,3 +476,29 @@ fn list_proposals_and_by_status_are_paginated() {
         );
     });
 }
+
+#[test]
+fn list_proposals_oversized_index_does_not_panic() {
+    with_vote(|storage| {
+        let mut governance = Vote::new(storage.clone());
+        let current = 300u64;
+        let _ = create_proposal_test(
+            &mut governance,
+            PROPOSER,
+            UPDATE_ADDRESS,
+            &empty_update_payload(current),
+            current,
+        )
+        .unwrap();
+
+        // U256::MAX used to panic in clamp_page via to::<u64>(); must saturate.
+        assert_eq!(
+            list_proposals(storage.clone(), U256::MAX, U256::from(1)).unwrap(),
+            Vec::<U256>::new()
+        );
+        assert_eq!(
+            list_proposals(storage, U256::ZERO, U256::MAX).unwrap().len(),
+            1
+        );
+    });
+}

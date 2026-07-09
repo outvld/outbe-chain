@@ -4,7 +4,7 @@ use outbe_primitives::block::{BlockContext, BlockRuntimeContext};
 use outbe_primitives::storage::hashmap::HashMapStorageProvider;
 use outbe_primitives::storage::StorageHandle;
 
-use crate::constants::MIN_ACTIVATION_BUFFER;
+use crate::constants::{MIN_ACTIVATION_BUFFER, PROTOCOL_VERSION};
 use crate::handlers::UpgradeHandlerRegistry;
 use crate::payload::encode_schedule_update_json;
 use crate::schema::Update;
@@ -22,6 +22,9 @@ mod vote_dispatch;
 mod unset_version;
 
 static EMPTY_UPGRADE_HANDLER_REGISTRY: UpgradeHandlerRegistry = UpgradeHandlerRegistry::new(&[]);
+
+/// Binary protocol version — safe to activate in tests.
+pub(super) const PV: ProtocolVersion = PROTOCOL_VERSION;
 
 pub(super) const V1_2: ProtocolVersion = encode_protocol_version(1, 2);
 pub(super) const V1_3: ProtocolVersion = encode_protocol_version(1, 3);

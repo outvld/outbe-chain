@@ -62,6 +62,14 @@ sol! {
         function getScheduledUpdate(uint256 id) external view returns (ScheduledUpdate memory);
     }
     #[sol(alloy_sol_types = alloy_sol_types)]
+    interface IVote {
+        function listProposals(uint256 index, uint256 count) external view returns (uint256[] memory);
+        function getProposalVoters(uint256 proposalId, uint256 index, uint256 count)
+            external
+            view
+            returns (address[] memory);
+    }
+    #[sol(alloy_sol_types = alloy_sol_types)]
     interface ITeeRegistry {
         function isBootstrapped() external view returns (bool);
     }

@@ -35,6 +35,14 @@ impl Localnet {
         fs::read_to_string(path).unwrap_or_default()
     }
 
+    /// Whether validator `index`'s owned node process has already exited.
+    pub fn validator_exited(&mut self, index: usize) -> bool {
+        match self.validators.get_mut(&index) {
+            Some(guard) => guard.exited(),
+            None => true,
+        }
+    }
+
     /// Whether validator `index`'s log contains `needle` (`e2e_joiner_log_has`).
     pub fn log_has(&self, index: usize, needle: &str) -> bool {
         self.node_log(&format!("validator-{index}")).contains(needle)

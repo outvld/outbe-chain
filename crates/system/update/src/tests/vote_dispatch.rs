@@ -14,7 +14,7 @@ use outbe_vote::schema::ProposalStatus;
 use outbe_vote::schema::Vote;
 
 use crate::payload::encode_schedule_update_json;
-use crate::tests::{block_ctx, min_activation, V1_2};
+use crate::tests::{block_ctx, min_activation, PV};
 
 static UPDATE_VOTE_TARGET: UpdateVoteTarget = UpdateVoteTarget;
 static VOTE_HANDLERS: &[&dyn VoteTarget] = &[&UPDATE_VOTE_TARGET];
@@ -30,7 +30,7 @@ const UNKNOWN_TARGET: alloy_primitives::Address =
 
 fn empty_update_payload(current_height: u64) -> String {
     encode_schedule_update_json(
-        V1_2,
+        PV,
         min_activation(current_height.saturating_add(VOTING_WINDOW_BLOCKS)),
         "",
     )
@@ -70,7 +70,7 @@ fn approved_vote_proposal_schedules_update_and_activates() {
         let current = 100u64;
         let deadline = current + VOTING_WINDOW_BLOCKS + 1;
         let activation = min_activation(deadline);
-        let payload = encode_schedule_update_json(V1_2, activation, "notes");
+        let payload = encode_schedule_update_json(PV, activation, "notes");
         let proposal_id = governance
             .create_proposal(
                 PROPOSER,
@@ -95,7 +95,7 @@ fn approved_vote_proposal_schedules_update_and_activates() {
 
         let mut update = Update::new(storage.clone());
         let scheduled = update.read_scheduled_update(proposal_id).unwrap().unwrap();
-        assert_eq!(scheduled.version, V1_2);
+        assert_eq!(scheduled.version, PV);
         assert_eq!(scheduled.activation_height, activation);
 
         let ctx = BlockRuntimeContext::new(
@@ -106,7 +106,7 @@ fn approved_vote_proposal_schedules_update_and_activates() {
             .process_begin_block_with_handlers(&ctx, &EMPTY_UPGRADE_HANDLER_REGISTRY)
             .unwrap();
 
-        assert_eq!(update.get_active_version().unwrap(), V1_2);
+        assert_eq!(update.get_active_version().unwrap(), PV);
         assert_eq!(update.get_active_version_height().unwrap(), activation);
     });
 }
@@ -155,7 +155,7 @@ fn handler_conflict_marks_proposal_rejected() {
         let current = 250u64;
         let deadline = current + VOTING_WINDOW_BLOCKS + 1;
         let activation = min_activation(deadline);
-        let payload = encode_schedule_update_json(V1_2, activation, "");
+        let payload = encode_schedule_update_json(PV, activation, "");
 
         let first = vote
             .create_proposal(
@@ -238,7 +238,7 @@ fn expired_update_proposal_does_not_emit_upgrade_activated() {
     let mut vote = Vote::new(storage.clone());
     let current = 400u64;
     let payload =
-        encode_schedule_update_json(V1_2, min_activation(current + VOTING_WINDOW_BLOCKS), "");
+        encode_schedule_update_json(PV, min_activation(current + VOTING_WINDOW_BLOCKS), "");
     let proposal_id = vote
         .create_proposal(
             PROPOSER,

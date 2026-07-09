@@ -59,7 +59,8 @@ impl StorableType for ProtocolVersion {
 
 impl Storable for ProtocolVersion {
     fn from_word(word: U256) -> Self {
-        Self::from_raw(word.to::<u32>())
+        // Storable::from_word cannot return Result; saturate instead of panicking.
+        Self::from_raw(word.saturating_to::<u32>())
     }
 
     fn to_word(&self) -> U256 {
@@ -264,6 +265,18 @@ mod tests {
         assert_eq!(
             format_protocol_version(encode_protocol_version(1, 2)),
             "v1.2 (16777218)"
+        );
+    }
+
+    #[test]
+    fn from_word_saturates_oversized_values() {
+        assert_eq!(
+            ProtocolVersion::from_word(U256::from(u32::MAX)),
+            ProtocolVersion::from_raw(u32::MAX)
+        );
+        assert_eq!(
+            ProtocolVersion::from_word(U256::MAX),
+            ProtocolVersion::from_raw(u32::MAX)
         );
     }
 }

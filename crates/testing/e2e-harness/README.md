@@ -21,7 +21,7 @@ Gherkin tags. The runner matches the two:
 - requirement unmet → the scenario is **skipped** (a `SKIPPED:` line prints, exit 0);
 - with `--all`, an unmet scenario is a **failure** instead (non-zero exit).
 
-Requirement tags (`@`-less in code): `needs-tee`, `min-validators-N`, `needs-sudo`,
+Requirement tags (`@`-less in code): `tee`, `min-validators-N`, `sudo`,
 and `todo` (an unimplemented stub — always skipped).
 
 ## Layout

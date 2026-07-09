@@ -4,12 +4,15 @@ use serde_json::Value;
 use outbe_primitives::block::BlockRuntimeContext;
 use outbe_primitives::error::{PrecompileError, Result};
 
-use crate::constants::{min_activation_buffer, MAX_WAITING_FOR_ACTIVATION_UPDATES};
+use crate::constants::{
+    min_activation_buffer, MAX_WAITING_FOR_ACTIVATION_UPDATES, PROTOCOL_VERSION,
+};
 use crate::errors::UpdateError;
 use crate::handlers::UpgradeHandlerRegistry;
 use crate::payload::decode_schedule_update_json;
 use crate::precompile::IUpdate;
 use crate::schema::{ScheduledUpdateStatus, Update};
+use crate::version::format_protocol_version;
 use crate::ProtocolVersion;
 
 impl Update<'_> {
@@ -111,6 +114,14 @@ impl Update<'_> {
         let active = self.get_active_version()?;
         if scheduled.version <= active {
             return self.cancel_scheduled_update(proposal_id);
+        }
+
+        if scheduled.version > PROTOCOL_VERSION {
+            return Err(PrecompileError::Fatal(format!(
+                "cannot activate protocol version {}: binary supports at most {}",
+                format_protocol_version(scheduled.version),
+                format_protocol_version(PROTOCOL_VERSION),
+            )));
         }
 
         ctx.with_checkpoint(|| {

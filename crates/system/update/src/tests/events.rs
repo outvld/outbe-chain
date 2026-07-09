@@ -8,7 +8,7 @@ use crate::precompile::{dispatch, IUpdate};
 use crate::schema::Update;
 
 use super::{
-    min_activation, schedule_update, with_update, with_update_provider, UpdateTestExt, V1_2, V1_3,
+    min_activation, schedule_update, with_update, with_update_provider, UpdateTestExt, PV, V1_2,
 };
 
 #[test]
@@ -39,7 +39,7 @@ fn lifecycle_emits_upgrade_activated_event() {
         let mut update = Update::new(storage.clone());
         let current = 100u64;
         let activation = min_activation(current);
-        schedule_update(&mut update, U256::from(1), V1_2, activation, "", current).unwrap();
+        schedule_update(&mut update, U256::from(1), PV, activation, "", current).unwrap();
         update.process_begin_block_test(activation).unwrap();
     });
 
@@ -59,7 +59,7 @@ fn lifecycle_emits_upgrade_canceled_event() {
         schedule_update(
             &mut update,
             U256::from(1),
-            V1_3,
+            PV,
             activation_early,
             "",
             current,
@@ -68,7 +68,7 @@ fn lifecycle_emits_upgrade_canceled_event() {
         schedule_update(
             &mut update,
             U256::from(2),
-            V1_2,
+            PV,
             activation_late,
             "",
             current,

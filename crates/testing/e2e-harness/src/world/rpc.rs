@@ -17,7 +17,7 @@ use eyre::{eyre, Result};
 use crate::internal::{
     addresses,
     config::Config,
-    eth::{self, IStaking, ITeeRegistry, ITribute, IUpdate, IValidatorSet, IWorldwideDay},
+    eth::{self, IStaking, ITeeRegistry, ITribute, IUpdate, IValidatorSet, IVote, IWorldwideDay},
     parse::{self, ScheduledUpdate, VoteStatus},
     shell::Sh,
 };
@@ -90,6 +90,34 @@ impl Rpc {
             activation: r.activationHeight,
             status: r.status as u64,
         })
+    }
+
+    /// `IVote.listProposals` on the node at `port` (pagination probe).
+    pub fn list_proposals_on(&self, port: u16, index: U256, count: U256) -> Option<Vec<U256>> {
+        eth::read_call(
+            &self.url(port),
+            addresses::VOTE_ADDR,
+            &IVote::listProposalsCall { index, count },
+        )
+    }
+
+    /// `IVote.getProposalVoters` on the node at `port` (pagination probe).
+    pub fn get_proposal_voters_on(
+        &self,
+        port: u16,
+        proposal_id: u64,
+        index: U256,
+        count: U256,
+    ) -> Option<Vec<Address>> {
+        eth::read_call(
+            &self.url(port),
+            addresses::VOTE_ADDR,
+            &IVote::getProposalVotersCall {
+                proposalId: U256::from(proposal_id),
+                index,
+                count,
+            },
+        )
     }
 
     /// Parsed `outbe-cli vote status` for proposal `id`.

@@ -5754,18 +5754,18 @@ mod tests {
     fn pre_exec_hooks_emit_whitelisted_update_activation_event() {
         use alloy_sol_types::SolEvent;
         use outbe_update::precompile::IUpdate;
-        use outbe_update::{encode_protocol_version, payload::encode_schedule_update_json};
+        use outbe_update::payload::encode_schedule_update_json;
         use serde_json::Value;
 
         let proposer = test_evm_signer().address();
         const ACTIVATION_BLOCK: u64 = 101;
-        let v1_2 = encode_protocol_version(1, 2);
+        let protocol_version = outbe_update::constants::PROTOCOL_VERSION;
 
         let mut state =
             state_with_active_validators_seeded(&[(proposer, dummy_pubkey(0xA2))], |storage| {
                 let proposal_id = U256::from(1);
                 let payload: Value = serde_json::from_str(&encode_schedule_update_json(
-                    v1_2,
+                    protocol_version,
                     ACTIVATION_BLOCK,
                     "",
                 ))
@@ -5802,18 +5802,18 @@ mod tests {
     fn hook_events_receipt_carries_whitelisted_update_activation_log() {
         use alloy_sol_types::SolEvent;
         use outbe_update::precompile::IUpdate;
-        use outbe_update::{encode_protocol_version, payload::encode_schedule_update_json};
+        use outbe_update::payload::encode_schedule_update_json;
         use serde_json::Value;
 
         let proposer = test_evm_signer().address();
         const ACTIVATION_BLOCK: u64 = 101;
-        let v1_2 = encode_protocol_version(1, 2);
+        let protocol_version = outbe_update::constants::PROTOCOL_VERSION;
 
         let mut state =
             state_with_active_validators_seeded(&[(proposer, dummy_pubkey(0xA2))], |storage| {
                 let proposal_id = U256::from(1);
                 let payload: Value = serde_json::from_str(&encode_schedule_update_json(
-                    v1_2,
+                    protocol_version,
                     ACTIVATION_BLOCK,
                     "",
                 ))
