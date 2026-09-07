@@ -13,9 +13,6 @@ required-features = ["dcap-fixture-tool"]
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
 outbe-primitives = { workspace = true, features = ["tee-attestation-v1"] }
-# `WorldwideDay` for the typed offer day on the wire; re-exported from
-# `protocol` so enclave-side consumers get it alongside the request types.
-outbe-common.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 metrics.workspace = true

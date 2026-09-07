@@ -18,7 +18,6 @@ outbe-agentreward.workspace = true
 outbe-oracle.workspace = true
 outbe-l2registry.workspace = true
 outbe-tee.workspace = true
-outbe-protocol.workspace = true
 outbe-zk-backend.workspace = true
 outbe-zk-canonical.workspace = true
 alloy-primitives.workspace = true
