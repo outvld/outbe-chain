@@ -406,6 +406,9 @@ fn serve_mock_prices(listener: TcpListener, state: &MockServerState) {
     while !state.stop.load(Ordering::Acquire) {
         match listener.accept() {
             Ok((mut stream, _)) => {
+                if stream.set_nonblocking(false).is_err() {
+                    continue;
+                }
                 let _ = respond_to_price_request(&mut stream, state);
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {

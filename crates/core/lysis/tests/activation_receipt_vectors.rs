@@ -13,6 +13,7 @@ use outbe_ocomp_protocol::{
         ContributorReceiptV1, ContributorStateEventProjectionV1, NodBatchReceiptV1,
         NodStateEventProjectionV1, TributeReceiptV1, TributeStateEventProjectionV1,
     },
+    ProtocolError,
 };
 
 use support::{activation_fixture, hash, recommit_result};
@@ -218,6 +219,102 @@ fn receipt_verifier_closes_green_and_red_conservation_equations() {
         assert!(!verified.effect_commitment().is_zero());
         assert!(!verified.event_summary_hash().is_zero());
     }
+}
+
+#[test]
+fn activation_rejects_retry_identity_before_receipt_verification() {
+    let mut fixture = activation_fixture(DayType::Green);
+    fixture.intent.pending_nonce = 1;
+    fixture.intent.attempt = 1;
+
+    assert_eq!(
+        verify_result(
+            fixture.intent_id,
+            fixture.job_id,
+            &fixture.intent,
+            &fixture.payload,
+            &fixture.result,
+            &fixture.limits,
+        )
+        .err(),
+        Some(ProtocolError::InvalidInvariant(
+            "single-attempt OCOMP identity"
+        ))
+    );
+}
+
+#[test]
+fn receipt_verifier_rejects_budget_effect_rebinding_within_the_single_attempt() {
+    let mut nonce_fixture = activation_fixture(DayType::Green);
+    nonce_fixture.request_receipt.pending_nonce = nonce_fixture.intent.pending_nonce + 1;
+    nonce_fixture
+        .intent
+        .frozen_metadosis_values
+        .request_budget_split_receipt_hash = nonce_fixture
+        .request_receipt
+        .receipt_hash(&nonce_fixture.limits)
+        .unwrap();
+    nonce_fixture.intent_id = nonce_fixture
+        .intent
+        .intent_id(&nonce_fixture.limits)
+        .unwrap();
+    let nonce_plan = verify_result(
+        nonce_fixture.intent_id,
+        nonce_fixture.job_id,
+        &nonce_fixture.intent,
+        &nonce_fixture.payload,
+        &nonce_fixture.result,
+        &nonce_fixture.limits,
+    )
+    .unwrap();
+    assert!(verify_receipts(
+        &nonce_plan,
+        &nonce_fixture.request_receipt,
+        &owner_receipts(&nonce_plan, &nonce_fixture.limits),
+        &nonce_fixture.limits,
+    )
+    .is_err());
+
+    let mut anchor_fixture = activation_fixture(DayType::Green);
+    anchor_fixture.request_receipt.logical_anchor =
+        anchor_fixture.intent.logical_evaluation_time + 1;
+    anchor_fixture.request_receipt.desis_brief_hash = Some(
+        outbe_ocomp_protocol::receipts::desis_request_brief_hash(
+            anchor_fixture.request_receipt.protocol_bundle_hash,
+            anchor_fixture.request_receipt.wwd,
+            anchor_fixture.request_receipt.auction_base,
+            &anchor_fixture.request_receipt.auction_entry_prices,
+            anchor_fixture.request_receipt.logical_anchor,
+        )
+        .unwrap(),
+    );
+    anchor_fixture
+        .intent
+        .frozen_metadosis_values
+        .request_budget_split_receipt_hash = anchor_fixture
+        .request_receipt
+        .receipt_hash(&anchor_fixture.limits)
+        .unwrap();
+    anchor_fixture.intent_id = anchor_fixture
+        .intent
+        .intent_id(&anchor_fixture.limits)
+        .unwrap();
+    let anchor_plan = verify_result(
+        anchor_fixture.intent_id,
+        anchor_fixture.job_id,
+        &anchor_fixture.intent,
+        &anchor_fixture.payload,
+        &anchor_fixture.result,
+        &anchor_fixture.limits,
+    )
+    .unwrap();
+    assert!(verify_receipts(
+        &anchor_plan,
+        &anchor_fixture.request_receipt,
+        &owner_receipts(&anchor_plan, &anchor_fixture.limits),
+        &anchor_fixture.limits,
+    )
+    .is_err());
 }
 
 #[test]
