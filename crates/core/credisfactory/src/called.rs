@@ -35,7 +35,7 @@ use crate::schema::CredisFactoryContract;
 /// Max positions visited per daily run; the cursor resumes the rest on the next
 /// run so one scan can never outgrow a block. An entry displaced past the cursor
 /// is picked up a day later, which cannot change an outcome: the call needs a
-/// multi-week breach count and the void follows a 14-day window.
+/// multi-week breach count and the void follows a 7-day window.
 pub(crate) const MAX_CREDIS_DAILY_VISITS: u32 = 4096;
 
 /// Max positions voided per daily run, far below [`MAX_CREDIS_DAILY_VISITS`]
@@ -44,7 +44,7 @@ pub(crate) const MAX_CREDIS_DAILY_VISITS: u32 = 4096;
 /// `burn_pledged_with_fidelity`) on a process-global connection.
 ///
 /// A correlated mass-void is the *expected* shape of a call event, not a tail
-/// case - a sustained breach calls every position in a currency at once, so 14
+/// case - a sustained breach calls every position in a currency at once, so 7
 /// days later they all lapse together. Without a separate cap one run would
 /// carry the whole burst.
 ///

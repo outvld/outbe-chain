@@ -62,9 +62,7 @@ use outbe_nod::NodContract;
 use outbe_node::OutbePayloadBuilder;
 use outbe_ocomp_protocol::{
     abi::encode_submit_lysis_result_calldata,
-    receipts::AggregateActivationReceiptV1,
-    state::{ActiveGenerationV1, OcompJobRecordV1, OcompJobStatus, OcompTerminalOutcome},
-    vote::OcompVoteAccountabilityV1,
+    state::{OcompJobRecordV1, OcompJobStatus, OcompTerminalOutcome},
 };
 use outbe_offchain_data::RuntimeBodyReaders;
 use outbe_offchain_storage::{MemoryStorage, StorageReaderHandle};
@@ -134,9 +132,6 @@ const FINALIZED_VIEW: u64 = 100;
 const PARENT_VIEW: u64 = 99;
 const VRF_MATERIAL_VERSION: u64 = 5;
 const VALIDATOR_OWNER: Address = address!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-const SATURATED_USER_TRANSACTION_COUNT: u64 = 40;
-const SATURATED_USER_TRANSACTION_GAS: u64 = 1_000_000;
-const BURNER_ADDRESS: Address = address!("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB");
 
 type TestPool = Pool<
     MockTransactionValidator<EthPooledTransaction>,
@@ -199,40 +194,6 @@ fn pooled_vote_transaction(input: Bytes, validator_index: u8) -> EthPooledTransa
 
 fn vote_sender_balance() -> U256 {
     U256::from(100_000_000_000_000_000_000u128)
-}
-
-fn saturated_user_secret() -> B256 {
-    B256::repeat_byte(0xE1)
-}
-
-fn saturated_user_sender() -> Address {
-    OutbeEvmSigner::from_secret_bytes(saturated_user_secret().0)
-        .expect("fixture saturated-user key is valid")
-        .address()
-}
-
-fn pooled_saturated_user_transaction(nonce: u64) -> EthPooledTransaction {
-    let transaction: Transaction = TxEip1559 {
-        chain_id: CHAIN_ID,
-        nonce,
-        gas_limit: SATURATED_USER_TRANSACTION_GAS,
-        max_fee_per_gas: 2_000_000_000,
-        max_priority_fee_per_gas: 1_000_000_000,
-        to: TxKind::Call(BURNER_ADDRESS),
-        value: U256::ZERO,
-        access_list: Default::default(),
-        input: Bytes::new(),
-    }
-    .into();
-    let signature = sign_secp256k1_message(saturated_user_secret(), transaction.signature_hash())
-        .expect("fixture saturated-user signer");
-    let signed = TransactionSigned::new_unhashed(transaction, signature);
-    EthPooledTransaction::try_from_consensus(
-        signed
-            .try_into_recovered()
-            .expect("fixture saturated-user sender recovers"),
-    )
-    .expect("fixture saturated-user transaction converts to pooled transaction")
 }
 
 #[derive(Clone, Debug)]
@@ -463,7 +424,7 @@ struct PreparedParent {
 }
 
 #[test]
-fn real_payload_builder_commits_atomic_request_expiry_retry_and_quorum() {
+fn real_payload_builder_commits_atomic_request_and_single_attempt_expiry() {
     let chain_spec: Arc<ChainSpec<OutbeHeader>> = ChainSpecBuilder::mainnet()
         .reset()
         .paris_activated()
@@ -1025,246 +986,10 @@ fn real_payload_builder_commits_atomic_request_expiry_retry_and_quorum() {
         Vec::new(),
     );
     assert_eq!(retry_request.record.status, OcompJobStatus::Expired);
-    assert_eq!(retry_request.requested_intents.len(), 1);
-    let retry_intent_id = retry_request.requested_intents[0];
-    let retry_record = read_ocomp_job_record(&retry_request.storage, retry_intent_id);
-    assert_eq!(retry_record.status, OcompJobStatus::AwaitingFinality);
-    assert_eq!(retry_record.intent.pending_nonce, 1);
-    assert_eq!(retry_record.intent.attempt, 1);
-    assert_eq!(
-        retry_record
-            .intent
-            .frozen_metadosis_values
-            .request_budget_split_receipt_hash,
-        finalized_record
-            .intent
-            .frozen_metadosis_values
-            .request_budget_split_receipt_hash,
-        "retry must preserve the original request budget receipt"
-    );
-
-    let retry_finality_height = retry_request_height + 1;
-    let retry_finality = build_canonical_ocomp_successor(
-        &chain_spec,
-        &prepared.tree_service,
-        &signer,
-        &runtime_body_readers,
-        &fork_install,
-        &dkg,
-        &snapshot,
-        proposer,
-        retry_request.header,
-        &retry_request.storage,
-        retry_finality_height,
-        prepared.request_time + (retry_finality_height - REQUEST_HEIGHT),
-        retry_intent_id,
-        Vec::new(),
-    );
-    let retry_finalized = retry_finality
-        .record
-        .finalized
-        .as_ref()
-        .expect("retry request receives canonical finality")
-        .clone();
-    let retry_open_height = retry_finalized.open_height;
-    let mut retry_voting_parent = retry_finality.header;
-    let mut retry_voting_storage = retry_finality.storage;
-    for height in (retry_finality_height + 1)..retry_open_height {
-        let built = build_canonical_ocomp_successor(
-            &chain_spec,
-            &prepared.tree_service,
-            &signer,
-            &runtime_body_readers,
-            &fork_install,
-            &dkg,
-            &snapshot,
-            proposer,
-            retry_voting_parent,
-            &retry_voting_storage,
-            height,
-            prepared.request_time + (height - REQUEST_HEIGHT),
-            retry_intent_id,
-            Vec::new(),
-        );
-        assert_eq!(built.record.status, OcompJobStatus::AwaitingFinality);
-        retry_voting_parent = built.header;
-        retry_voting_storage = built.storage;
-    }
-    let retry_voting_open = build_canonical_ocomp_successor(
-        &chain_spec,
-        &prepared.tree_service,
-        &signer,
-        &runtime_body_readers,
-        &fork_install,
-        &dkg,
-        &snapshot,
-        proposer,
-        retry_voting_parent,
-        &retry_voting_storage,
-        retry_open_height,
-        prepared.request_time + (retry_open_height - REQUEST_HEIGHT),
-        retry_intent_id,
-        Vec::new(),
-    );
-    assert_eq!(retry_voting_open.record.status, OcompJobStatus::VotingOpen);
-
-    let voting =
-        ResultVotingScenario::for_intent(&retry_voting_open.record.intent, retry_finalized.job_id);
-    let voting_result = voting.result().clone();
-
-    let signed_votes = (0_u8..3)
-        .map(|validator_index| (validator_index, voting.signed_vote(validator_index)))
-        .collect::<Vec<_>>();
-    let mut voting_open_state = HashMapStorageProvider::new(CHAIN_ID);
-    voting_open_state.storage = retry_voting_open.storage.clone();
-    StorageHandle::enter(&mut voting_open_state, |storage| {
-        for (validator_index, vote) in &signed_votes {
-            let prefix = vote.prefix();
-            assert_eq!(
-                outbe_metadosis::resolve_historical_result_vote_participant(
-                    storage.clone(),
-                    &prefix,
-                    &poc_schema_limits(),
-                )
-                .expect("historical OCOMP vote participant resolution"),
-                Some(validator_sender(*validator_index)),
-            );
-        }
-    });
-    let vote_transactions = signed_votes
-        .into_iter()
-        .map(|(validator_index, vote)| {
-            let calldata = encode_submit_lysis_result_calldata(&vote, &poc_schema_limits())
-                .expect("canonical q-forming vote calldata");
-            pooled_vote_transaction(Bytes::from(calldata), validator_index)
-        })
-        .collect::<Vec<_>>();
-    let vote_hashes = vote_transactions
-        .iter()
-        .map(PoolTransaction::hash)
-        .copied()
-        .collect::<Vec<_>>();
-    let mut saturated_transactions = (0..SATURATED_USER_TRANSACTION_COUNT)
-        .map(pooled_saturated_user_transaction)
-        .collect::<Vec<_>>();
-    // Deliberately insert the higher-tip user workload first. Production
-    // OutbeTransactionOrdering must still select every OCOMP carrier ahead of it.
-    saturated_transactions.extend(vote_transactions);
-    let q_forming = build_canonical_ocomp_successor(
-        &chain_spec,
-        &prepared.tree_service,
-        &signer,
-        &runtime_body_readers,
-        &fork_install,
-        &dkg,
-        &snapshot,
-        proposer,
-        retry_voting_open.header,
-        &retry_voting_open.storage,
-        retry_open_height + 1,
-        prepared.request_time + (retry_open_height + 1 - REQUEST_HEIGHT),
-        retry_intent_id,
-        saturated_transactions,
-    );
     assert!(
-        q_forming.user_transaction_count > vote_hashes.len(),
-        "saturated block must contain the OCOMP carriers plus ordinary user work"
+        retry_request.requested_intents.is_empty(),
+        "an expired single-attempt request must not be retried"
     );
-    assert!(
-        q_forming.user_transaction_count
-            < usize::try_from(SATURATED_USER_TRANSACTION_COUNT).unwrap() + vote_hashes.len(),
-        "offered user gas must exceed the block budget so priority is observable"
-    );
-    assert!(
-        q_forming.user_transaction_hashes[..vote_hashes.len()]
-            .iter()
-            .all(|hash| vote_hashes.contains(hash)),
-        "all OCOMP carriers must be selected before higher-tip ordinary transactions"
-    );
-    assert!(q_forming.user_receipt_successes[..vote_hashes.len()]
-        .iter()
-        .all(|success| *success));
-    assert!(q_forming.user_receipt_successes[vote_hashes.len()..]
-        .iter()
-        .all(|success| !*success));
-    assert!(q_forming.user_receipt_cumulative_gas[..vote_hashes.len()]
-        .windows(2)
-        .all(|window| window[0] == window[1]));
-    assert!(
-        q_forming.user_receipt_cumulative_gas.last().unwrap()
-            > &q_forming.user_receipt_cumulative_gas[vote_hashes.len() - 1],
-        "ordinary saturated transactions, unlike OCOMP carriers, consume user-lane gas"
-    );
-    assert_eq!(
-        q_forming.record.status,
-        OcompJobStatus::Completed,
-        "retry quorum must complete: initial_deadline={initial_deadline}, retry_request_height={retry_request_height}, retry_open_height={retry_open_height}, record={:?}",
-        q_forming.record
-    );
-    let completed = q_forming
-        .record
-        .terminal
-        .as_ref()
-        .and_then(|terminal| terminal.completed_binding.as_ref())
-        .expect("q-forming block persists completed binding")
-        .clone();
-    let quorum = q_forming
-        .record
-        .finalized
-        .as_ref()
-        .and_then(|finalized| finalized.quorum.as_ref())
-        .expect("q-forming block persists quorum")
-        .clone();
-    assert_eq!(
-        quorum.result_digest,
-        voting_result.result_digest(&poc_schema_limits()).unwrap()
-    );
-    assert_eq!(quorum.signer_bitmap, vec![0b0111]);
-    assert_eq!(completed.quorum_evidence_hash, quorum.evidence_hash);
-
-    let mut completed_state = HashMapStorageProvider::new(CHAIN_ID);
-    completed_state.storage = q_forming.storage;
-    StorageHandle::enter(&mut completed_state, |storage| {
-        let job_id = q_forming
-            .record
-            .finalized
-            .as_ref()
-            .expect("completed record remains finalized")
-            .job_id;
-        let accountability = OcompVoteAccountabilityV1::decode_canonical(
-            &outbe_metadosis::api::get_offchain_vote_accountability(storage.clone(), job_id)
-                .expect("public q-forming accountability"),
-            &poc_schema_limits(),
-        )
-        .unwrap();
-        assert_eq!(accountability.slots.iter().flatten().count(), 3);
-        assert_eq!(accountability.quorum.as_ref(), Some(&quorum));
-
-        let terminal_receipt = AggregateActivationReceiptV1::decode_canonical(
-            &outbe_metadosis::api::get_lysis_terminal_receipt(storage.clone(), retry_intent_id)
-                .expect("public q-forming terminal receipt"),
-            &poc_schema_limits(),
-        )
-        .unwrap();
-        assert_eq!(completed.terminal_receipt, terminal_receipt);
-        let generation = ActiveGenerationV1::decode_canonical(
-            &outbe_metadosis::api::get_active_lysis_generation(storage.clone(), prepared.wwd)
-                .expect("public q-forming active generation"),
-            &poc_schema_limits(),
-        )
-        .unwrap();
-        assert_eq!(generation.job_id, voting_result.job_id);
-        assert_eq!(generation.nod_root, voting_result.roots.nod_root);
-        assert_eq!(generation.exact_counts, voting_result.counts);
-        let projection = outbe_metadosis::api::worldwide_day(storage, prepared.wwd)
-            .unwrap()
-            .unwrap();
-        assert_eq!(projection.status, outbe_metadosis::WwdStatus::Completed);
-        assert_eq!(
-            projection.membership,
-            outbe_metadosis::WwdMembership::Closed
-        );
-    });
 
     assert_ne!(requested.data.intentId, B256::ZERO);
     assert_eq!(
@@ -1289,24 +1014,6 @@ struct CanonicalOcompSuccessor {
     storage: HashMap<(Address, U256), U256>,
     record: OcompJobRecordV1,
     requested_intents: Vec<B256>,
-    user_transaction_count: usize,
-    user_transaction_hashes: Vec<B256>,
-    user_receipt_successes: Vec<bool>,
-    user_receipt_cumulative_gas: Vec<u64>,
-}
-
-fn read_ocomp_job_record(
-    storage: &HashMap<(Address, U256), U256>,
-    intent_id: B256,
-) -> OcompJobRecordV1 {
-    let mut provider = HashMapStorageProvider::new(CHAIN_ID);
-    provider.storage = storage.clone();
-    StorageHandle::enter(&mut provider, |storage| {
-        let encoded = outbe_metadosis::api::get_offchain_job(storage, intent_id)
-            .expect("canonical public OCOMP job query");
-        OcompJobRecordV1::decode_canonical(&encoded, &poc_schema_limits())
-            .expect("canonical public OCOMP job decodes")
-    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1410,46 +1117,28 @@ fn build_canonical_ocomp_successor(
     let executed = payload
         .executed_block()
         .expect("canonical OCOMP model block exposes execution");
-    let (user_transaction_hashes, user_receipt_successes, user_receipt_cumulative_gas) =
-        if !layout.user.is_empty() {
-            let user_receipts = &executed.execution_output.result.receipts
-                [layout.begin.len()..layout.begin.len() + layout.user.len()];
-            let mut prior_cumulative_gas = executed.execution_output.result.receipts
-                [layout.begin.len().saturating_sub(1)]
-            .cumulative_gas_used;
-            for (transaction, receipt) in layout.user.iter().zip(user_receipts) {
-                let transaction = *transaction;
-                if transaction.to() == Some(METADOSIS_ADDRESS) {
-                    assert_eq!(
-                        TransactionSigned::gas_limit(transaction),
-                        30_000,
-                        "every OCOMP system carrier preserves the canonical signed gas limit"
-                    );
-                    assert_eq!(
-                        receipt.cumulative_gas_used, prior_cumulative_gas,
-                        "OCOMP system carrier must not consume ordinary user-lane gas"
-                    );
-                }
-                prior_cumulative_gas = receipt.cumulative_gas_used;
+    if !layout.user.is_empty() {
+        let user_receipts = &executed.execution_output.result.receipts
+            [layout.begin.len()..layout.begin.len() + layout.user.len()];
+        let mut prior_cumulative_gas = executed.execution_output.result.receipts
+            [layout.begin.len().saturating_sub(1)]
+        .cumulative_gas_used;
+        for (transaction, receipt) in layout.user.iter().zip(user_receipts) {
+            let transaction = *transaction;
+            if transaction.to() == Some(METADOSIS_ADDRESS) {
+                assert_eq!(
+                    TransactionSigned::gas_limit(transaction),
+                    30_000,
+                    "every OCOMP system carrier preserves the canonical signed gas limit"
+                );
+                assert_eq!(
+                    receipt.cumulative_gas_used, prior_cumulative_gas,
+                    "OCOMP system carrier must not consume ordinary user-lane gas"
+                );
             }
-            (
-                layout
-                    .user
-                    .iter()
-                    .map(|transaction| *(*transaction).tx_hash())
-                    .collect(),
-                user_receipts
-                    .iter()
-                    .map(|receipt| receipt.success)
-                    .collect(),
-                user_receipts
-                    .iter()
-                    .map(|receipt| receipt.cumulative_gas_used)
-                    .collect(),
-            )
-        } else {
-            (Vec::new(), Vec::new(), Vec::new())
-        };
+            prior_cumulative_gas = receipt.cumulative_gas_used;
+        }
+    }
     let import = evm_config
         .executor(StateProviderDatabase::new(&provider))
         .execute(executed.recovered_block.as_ref())
@@ -1507,10 +1196,6 @@ fn build_canonical_ocomp_successor(
         storage: state.storage,
         record,
         requested_intents,
-        user_transaction_count: layout.user.len(),
-        user_transaction_hashes,
-        user_receipt_successes,
-        user_receipt_cumulative_gas,
     }
 }
 
@@ -1781,15 +1466,6 @@ fn mock_provider(
             ExtendedAccount::new(0, vote_sender_balance()),
         );
     }
-    inner.add_account(
-        saturated_user_sender(),
-        ExtendedAccount::new(0, vote_sender_balance()),
-    );
-    inner.add_account(
-        BURNER_ADDRESS,
-        ExtendedAccount::new(0, U256::ZERO)
-            .with_bytecode(Bytes::from_static(&[0x5b, 0x60, 0x00, 0x56])),
-    );
     TestProvider {
         inner,
         base_state: Arc::new(hashed_marker_state(storage)),
@@ -1812,28 +1488,6 @@ fn hashed_marker_state(storage: &HashMap<(Address, U256), U256>) -> HashedAccoun
             ),
         );
     }
-    accounts.insert(
-        keccak256(saturated_user_sender()),
-        (
-            Account {
-                nonce: 0,
-                balance: vote_sender_balance(),
-                bytecode_hash: None,
-            },
-            BTreeMap::new(),
-        ),
-    );
-    accounts.insert(
-        keccak256(BURNER_ADDRESS),
-        (
-            Account {
-                nonce: 0,
-                balance: U256::ZERO,
-                bytecode_hash: Some(keccak256([0x5b, 0x60, 0x00, 0x56])),
-            },
-            BTreeMap::new(),
-        ),
-    );
     for ((address, slot), value) in storage {
         let (_, account_storage) = accounts.entry(keccak256(address)).or_insert_with(|| {
             (

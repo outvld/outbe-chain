@@ -7,7 +7,7 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_sol_types::SolCall;
 
 use crate::precompile::ICredisFactory;
-use outbe_credis::{CredisContract, CredisState};
+use outbe_credis::{constants::CALL_WINDOW_SECS, CredisContract, CredisState};
 use outbe_primitives::storage::hashmap::HashMapStorageProvider;
 use outbe_primitives::storage::StorageHandle;
 use outbe_promislimit::PromisLimitContract;
@@ -367,7 +367,7 @@ fn the_void_burns_only_the_unpaid_share() {
         assert!(!cohorts_before.is_empty(), "alice has a seeded cohort");
 
         // One second inside the window the sweep must find nothing.
-        let deadline = called_at + 14 * DAY;
+        let deadline = called_at + CALL_WINDOW_SECS;
         advance_to(&storage, deadline - 1);
         finalize_through(&storage, deadline - 1);
         assert_eq!(scan(&storage, deadline - 1), 0, "window still open");
@@ -446,7 +446,7 @@ fn a_position_settled_inside_the_window_is_never_voided() {
         advance_to(&storage, called_at + 7 * DAY);
         settle_principal(&storage, alice(), position_id, pledge_stables());
 
-        let deadline = called_at + 14 * DAY;
+        let deadline = called_at + CALL_WINDOW_SECS;
         advance_to(&storage, deadline + DAY);
         finalize_through(&storage, deadline + DAY);
         assert_eq!(scan(&storage, deadline + DAY), 0);
@@ -596,7 +596,7 @@ fn the_void_leaves_the_stake_with_the_smart_account() {
             assert!(credis.mark_called(position_id, called_at).unwrap());
         }
 
-        let deadline = called_at + 14 * DAY;
+        let deadline = called_at + CALL_WINDOW_SECS;
         advance_to(&storage, deadline);
         finalize_through(&storage, deadline);
         assert_eq!(scan(&storage, deadline), 1);

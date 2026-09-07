@@ -180,6 +180,12 @@ impl Service {
 // not renumber the consensus ports baked into canonical fixtures.
 const BLOCK: u16 = 21;
 const RADICLE_BLOCK: u16 = Service::RADICLE.len() as u16;
+// macOS reserves 49152..=65535 for ephemeral sockets, leaving no space above
+// it; start Radicle below that interval. Linux starts at 50000 and skips its
+// kernel-reported ephemeral interval to 61000 on the default configuration.
+#[cfg(target_os = "macos")]
+const RADICLE_BASE: u16 = 40_000;
+#[cfg(not(target_os = "macos"))]
 const RADICLE_BASE: u16 = 50_000;
 
 /// Port allocator shared by every [`Config`](crate::internal::config::Config)
@@ -420,11 +426,38 @@ fn ranges_overlap(left: (u16, u16), right: (u16, u16)) -> bool {
     left.0 <= right.1 && right.0 <= left.1
 }
 
+#[cfg(target_os = "linux")]
 fn ephemeral_port_range() -> Result<(u16, u16)> {
     let path = "/proc/sys/net/ipv4/ip_local_port_range";
     let value = std::fs::read_to_string(path)
         .wrap_err_with(|| format!("read {path} for Radicle port allocation"))?;
     parse_ephemeral_port_range(&value).wrap_err_with(|| format!("parse {path}"))
+}
+
+#[cfg(target_os = "macos")]
+fn ephemeral_port_range() -> Result<(u16, u16)> {
+    let output = std::process::Command::new("sysctl")
+        .args([
+            "-n",
+            "net.inet.ip.portrange.first",
+            "net.inet.ip.portrange.last",
+        ])
+        .output()
+        .wrap_err("read macOS ephemeral port range for Radicle port allocation")?;
+    if !output.status.success() {
+        bail!(
+            "read macOS ephemeral port range for Radicle port allocation: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let value =
+        std::str::from_utf8(&output.stdout).wrap_err("macOS ephemeral port range is not UTF-8")?;
+    parse_ephemeral_port_range(value).wrap_err("parse macOS ephemeral port range")
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn ephemeral_port_range() -> Result<(u16, u16)> {
+    bail!("ephemeral port range discovery is unsupported on this operating system")
 }
 
 fn parse_ephemeral_port_range(value: &str) -> Result<(u16, u16)> {
@@ -797,6 +830,7 @@ mod tests {
         let ports = Ports::new(false);
         let mut resolver = lock(&ports.inner);
         resolver.cursor = 50_000;
+        resolver.radicle_cursor = 50_000;
         assert_eq!(resolver.block_start(0).unwrap(), 50_000);
         assert_eq!(resolver.radicle_block_start(0).unwrap(), 50_021);
         assert_eq!(resolver.block_start(1).unwrap(), 50_023);

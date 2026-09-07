@@ -534,6 +534,8 @@ fn rebalance_amount_to(
 
     let iso_from = asset_iso_code(storage, asset_from)?;
     let iso_to = asset_iso_code(storage, asset_to)?;
+    validate_currency_code(iso_from)?;
+    validate_currency_code(iso_to)?;
     if decimals_to >= decimals_from {
         let scaled = rescale_decimals(amount, decimals_from, decimals_to)?;
         outbe_oracle::api::fresh_currency_cross_rate(storage.clone(), iso_from, iso_to, scaled)

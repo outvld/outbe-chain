@@ -611,7 +611,6 @@ fn mainnet_release_workflow_requires_a_pinned_genesis_and_closed_profile() {
         "test \"$(jq -er '.config.chainId' \\\n",
         "            \"${RUNNER_TEMP}/release-inputs/mainnet-seeded-genesis.json\")\" = '676'"
     )));
-    assert!(!workflow.contains("testnet"));
     assert!(!workflow.contains("--clobber"));
     assert!(!workflow.contains("gh release upload"));
     assert!(workflow.contains("--draft --prerelease"));

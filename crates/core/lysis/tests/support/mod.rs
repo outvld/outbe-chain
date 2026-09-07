@@ -78,7 +78,7 @@ fn request_receipt(day_type: DayType) -> RequestBudgetSplitReceiptV1 {
     RequestBudgetSplitReceiptV1 {
         protocol_bundle_hash,
         wwd,
-        pending_nonce: 1,
+        pending_nonce: 0,
         day_type,
         day_limit: U256::from(100),
         lysis_budget: U256::from(60),
@@ -110,8 +110,8 @@ fn intent(day_type: DayType, request_receipt_hash: B256) -> JobIntentV1 {
         genesis_hash: hash(40),
         fork_id: hash(1),
         wwd: 7,
-        pending_nonce: 1,
-        attempt: 1,
+        pending_nonce: 0,
+        attempt: 0,
         protocol_bundle_hash: hash(41),
         ce_sealed_root: hash(42),
         sealed_tribute_collection_key: hash(30),
@@ -162,7 +162,7 @@ fn intent(day_type: DayType, request_receipt_hash: B256) -> JobIntentV1 {
             },
             metadosis: MetadosisAttemptPreconditionV1 {
                 wwd: 7,
-                pending_nonce: 1,
+                pending_nonce: 0,
                 expected_status: MetadosisExpectedStatus::OffchainPending,
                 state_version: 12,
             },
@@ -217,7 +217,7 @@ fn result(day_type: DayType, job_id: B256, limits: &SchemaLimits) -> LysisResult
     LysisResultV1 {
         protocol_bundle_hash: hash(41),
         job_id,
-        attempt: 1,
+        attempt: 0,
         input_manifest_hash: summary.input_manifest_hash,
         plan_hash: summary.plan_hash,
         unit_artifact_root: summary.unit_artifact_root,
@@ -232,7 +232,7 @@ fn result(day_type: DayType, job_id: B256, limits: &SchemaLimits) -> LysisResult
         },
         metadosis_completion_summary: MetadosisCompletionSummaryV1 {
             wwd: 7,
-            pending_nonce: 1,
+            pending_nonce: 0,
             day_type,
             tribute_nominal_total: U256::from(1_000),
             day_limit: U256::from(100),

@@ -725,10 +725,7 @@ fn add_vault_rejects_an_asset_without_a_reference_currency() {
     StorageHandle::enter(&mut storage, |storage| {
         set_owner(&storage, owner());
         let err = runtime::add_vault(storage.clone(), owner(), vault()).unwrap_err();
-        assert!(
-            err.to_string().contains("invalid reference currency"),
-            "{err}"
-        );
+        assert!(err.to_string().contains("currency code 0"), "{err}");
 
         let contract = VaultRouterContract::new(storage.clone());
         assert_eq!(contract.assets.len().unwrap(), 0);
@@ -2108,10 +2105,7 @@ fn rebalance_rejects_an_asset_reporting_no_reference_currency() {
             U256::MAX,
         )
         .unwrap_err();
-        assert!(
-            err.to_string().contains("invalid reference currency"),
-            "{err}"
-        );
+        assert!(err.to_string().contains("currency code 0"), "{err}");
     });
     assert!(storage.get_events(VAULT_ROUTER_ADDRESS).is_empty());
 }

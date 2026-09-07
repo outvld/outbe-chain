@@ -2356,7 +2356,7 @@ fn fresh_task_output_dir(task: &str) -> Result<std::path::PathBuf> {
     // Keep the task root compact: the E2E harness adds run/scenario/validator
     // components before creating reth.ipc, whose Linux sun_path is limited to
     // 107 pathname bytes plus the terminating NUL.
-    let path = std::env::temp_dir().join(format!("{task}-{}-{timestamp}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("{task}-{:x}{timestamp:x}", std::process::id()));
     if path.exists() {
         bail!("fresh task output already exists: {}", path.display());
     }

@@ -865,7 +865,9 @@ mod tests {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             loop {
                 if let Ok(bytes) = std::fs::read(&self.acknowledgement_path) {
-                    return ExportLeaseOpenAck::decode_fixed(&bytes).unwrap();
+                    if let Ok(acknowledgement) = ExportLeaseOpenAck::decode_fixed(&bytes) {
+                        return acknowledgement;
+                    }
                 }
                 if let Some(status) = self.child.try_wait().unwrap() {
                     panic!("read-only exporter exited before acknowledgement: {status}");

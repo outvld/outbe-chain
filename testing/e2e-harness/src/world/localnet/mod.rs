@@ -834,7 +834,7 @@ mod tests {
         ] {
             let dir = tempfile::tempdir().unwrap();
             let env = Environment {
-                data_dir: dir.path().to_owned(),
+                data_dir: dir.path().canonicalize().unwrap(),
                 ..Environment::default()
             };
             let mut localnet = Localnet::new(Config::resolve(&env));
@@ -861,7 +861,7 @@ mod tests {
     fn expiry_cleanup_fixture(script: &str, exited: bool) -> (tempfile::TempDir, Localnet, u32) {
         let dir = tempfile::tempdir().unwrap();
         let env = Environment {
-            data_dir: dir.path().to_owned(),
+            data_dir: dir.path().canonicalize().unwrap(),
             ..Environment::default()
         };
         let mut localnet = Localnet::new(Config::resolve(&env));
@@ -974,7 +974,7 @@ mod tests {
     fn node_launch_log_excludes_prior_incarnation_and_rejects_stale_pid() {
         let dir = tempfile::tempdir().unwrap();
         let env = Environment {
-            data_dir: dir.path().to_owned(),
+            data_dir: dir.path().canonicalize().unwrap(),
             ..Environment::default()
         };
         let mut localnet = Localnet::new(Config::resolve(&env));
@@ -1001,7 +1001,7 @@ mod tests {
         for damage in ["missing", "replaced", "truncated"] {
             let dir = tempfile::tempdir().unwrap();
             let env = Environment {
-                data_dir: dir.path().to_owned(),
+                data_dir: dir.path().canonicalize().unwrap(),
                 ..Environment::default()
             };
             let mut localnet = Localnet::new(Config::resolve(&env));
@@ -1028,7 +1028,7 @@ mod tests {
     fn node_launch_log_failed_spawn_discards_previous_capture() {
         let dir = tempfile::tempdir().unwrap();
         let env = Environment {
-            data_dir: dir.path().to_owned(),
+            data_dir: dir.path().canonicalize().unwrap(),
             ..Environment::default()
         };
         let mut localnet = Localnet::new(Config::resolve(&env));
@@ -1051,7 +1051,7 @@ mod tests {
     fn node_launch_log_cleanup_drops_capture_but_retains_diagnostics() {
         let dir = tempfile::tempdir().unwrap();
         let env = Environment {
-            data_dir: dir.path().to_owned(),
+            data_dir: dir.path().canonicalize().unwrap(),
             ..Environment::default()
         };
         let mut localnet = Localnet::new(Config::resolve(&env));

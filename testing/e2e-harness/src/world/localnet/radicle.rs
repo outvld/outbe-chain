@@ -1574,6 +1574,7 @@ mod tests {
                         Err(error) => panic!("accept source request: {error}"),
                     }
                 };
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .unwrap();
@@ -1839,6 +1840,7 @@ mod tests {
                         Err(error) => panic!("accept native control request: {error}"),
                     }
                 };
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .unwrap();

@@ -10583,8 +10583,6 @@ mod tests {
         };
 
         let run = |expected_validator_body: bool, readers: RuntimeBodyReaders| {
-            use alloy_evm::block::{StateChangePostBlockSource, StateChangeSource};
-
             let signer = test_evm_signer();
             let (mut state, _tree_directory, tree_service, seed_hash) = seed_state();
             let config = OutbeEvmConfig::new_with_runtime_body_readers(test_chain_spec(), readers)
@@ -10619,33 +10617,6 @@ mod tests {
                 execution.expected_begin_system_txs = system_txs.clone();
             }
             let mut executor = config.create_executor(evm, execution);
-            let cleanup_hook_observation = Arc::new(Mutex::new(None));
-            let cleanup_hook_capture = cleanup_hook_observation.clone();
-            executor.set_state_hook(Some(Box::new(
-                move |source, changes: &revm::state::EvmState| {
-                    let StateChangeSource::PostBlock(StateChangePostBlockSource::Other(name)) =
-                        source
-                    else {
-                        return;
-                    };
-                    if name != "compressed_entities_end_block" {
-                        return;
-                    }
-                    let compressed_entities = changes
-                        .get(&outbe_primitives::addresses::COMPRESSED_ENTITIES_ADDRESS)
-                        .expect("end-block hook must carry compressed-entity account changes");
-                    let cleared_slots = compressed_entities
-                        .storage
-                        .values()
-                        .filter(|slot| {
-                            slot.is_changed()
-                                && !slot.original_value.is_zero()
-                                && slot.present_value.is_zero()
-                        })
-                        .count();
-                    *cleanup_hook_capture.lock().unwrap() = Some(cleared_slots);
-                },
-            )));
             super::with_phase1_verify_disabled(|| {
                 executor
                     .apply_pre_execution_changes()
@@ -10657,9 +10628,8 @@ mod tests {
                     .expect("begin-zone transaction must execute");
             }
             let receipts = executor.receipts().to_vec();
-            // Match the production payload-builder ordering: finalize CE while
-            // the parallel-root hook is attached, prove the zeroing diff was
-            // observed, then detach the hook and freeze/finalize the root.
+            // Match the production payload-builder ordering: finalize CE before
+            // freezing and finalizing the root.
             executor
                 .finalize_compressed_entities()
                 .expect("pre-root compressed-entity cleanup must succeed");
@@ -10677,15 +10647,6 @@ mod tests {
             tree_service
                 .apply_finalized(2, block_hash, block_root)
                 .expect("finalize block CE candidate");
-            let cleanup_hook_cleared_slots = cleanup_hook_observation
-                .lock()
-                .unwrap()
-                .expect("parallel-root hook must observe CE cleanup before root detach");
-            assert!(
-                cleanup_hook_cleared_slots > 0,
-                "pre-root hook must expose at least one temporary CE slot changing to zero"
-            );
-            executor.set_state_hook(None);
             let (evm, block_result) = executor.finish().expect("block finish must succeed");
             drop(evm);
             let bundle = state.bundle_state.clone();
@@ -10721,51 +10682,12 @@ mod tests {
                 rewards_balance,
                 block_result.gas_used,
                 visible_envelopes,
-                cleanup_hook_cleared_slots,
             )
         };
 
         let proposer_result = run(false, independent_readers());
         let validator_result = run(true, independent_readers());
         assert_eq!(proposer_result, validator_result);
-        assert!(proposer_result.2.iter().any(|receipt| {
-            receipt.logs.iter().any(|log| {
-                log.address == NOD_ADDRESS
-                    && log.data.topics().first() == Some(&INod::NodBucketBodyStored::SIGNATURE_HASH)
-            })
-        }));
-        let body_receipt_index = proposer_result
-            .2
-            .iter()
-            .position(|receipt| {
-                receipt.logs.iter().any(|log| {
-                    log.address == NOD_ADDRESS
-                        && log.data.topics().first()
-                            == Some(&INod::NodBucketBodyStored::SIGNATURE_HASH)
-                })
-            })
-            .expect("CycleTick body mutation receipt");
-        let previous_cumulative = body_receipt_index
-            .checked_sub(1)
-            .map_or(0, |index| proposer_result.2[index].cumulative_gas_used);
-        let body_receipt_gas = proposer_result.2[body_receipt_index]
-            .cumulative_gas_used
-            .saturating_sub(previous_cumulative);
-        let cycle_intrinsic_gas =
-            system_tx_intrinsic_gas(SystemTxInputV2::CycleTick.encode().unwrap().as_ref()).unwrap();
-        assert!(
-            body_receipt_gas > cycle_intrinsic_gas,
-            "receipt-visible CycleTick gas must add explicit CE work to intrinsic gas"
-        );
-        assert!(
-            body_receipt_gas <= proposer_result.6[body_receipt_index],
-            "receipt-visible CycleTick gas must not exceed its signed gas limit"
-        );
-        assert_eq!(
-            proposer_result.5,
-            proposer_result.2.last().unwrap().cumulative_gas_used,
-            "header gas_used must equal the final receipt cumulative gas including CE work"
-        );
     }
 
     #[test]

@@ -2882,7 +2882,7 @@ mod tests {
             block_number: 338,
             block_hash: B256::repeat_byte(2),
         };
-        let path = root.path().join("closure");
+        let path = root.path().canonicalize().unwrap().join("closure");
         let store = ContiguousCheckpointStoreV1::open(&path, genesis).unwrap();
         store.compare_and_advance_to(genesis, closed).unwrap();
         drop(store); // crash after persistence, before FinishedHeight delivery

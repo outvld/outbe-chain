@@ -7,7 +7,7 @@
 
 use alloy_primitives::{Address, U256};
 
-use outbe_credis::constants::{CALL_BREACH_DAYS, CALL_LOOKBACK_DAYS};
+use outbe_credis::constants::{CALL_BREACH_DAYS, CALL_LOOKBACK_DAYS, CALL_WINDOW_SECS};
 use outbe_credis::{CredisContract, CredisState};
 use outbe_primitives::storage::StorageHandle;
 use outbe_primitives::time::previous_date_key;
@@ -64,8 +64,8 @@ fn a_full_window_above_the_call_price_calls_the_position() {
         assert_eq!(position.called_at, at, "stamped with the run's timestamp");
         assert_eq!(
             outbe_credis::settlement_deadline(&position),
-            at + 14 * DAY,
-            "the 14-day settlement window opens at the call"
+            at + CALL_WINDOW_SECS,
+            "the 7-day settlement window opens at the call"
         );
 
         // The owner's called-position counter tracks the unresolved call.
@@ -273,7 +273,7 @@ fn the_call_and_the_void_compose_across_runs() {
         assert_eq!(scan(&storage, at), 0);
 
         // Inside the window, nothing happens.
-        let inside = at + 13 * DAY;
+        let inside = at + CALL_WINDOW_SECS - DAY;
         advance_to(&storage, inside);
         finalize_through(&storage, inside);
         assert_eq!(scan(&storage, inside), 0);
@@ -281,7 +281,7 @@ fn the_call_and_the_void_compose_across_runs() {
 
         // The window lapses with the whole principal outstanding: the entire
         // collateral is burned and credited to the Promis Reserve.
-        let lapsed = at + 14 * DAY;
+        let lapsed = at + CALL_WINDOW_SECS;
         advance_to(&storage, lapsed);
         finalize_through(&storage, lapsed);
         assert_eq!(scan(&storage, lapsed), 1);
@@ -503,7 +503,7 @@ fn voiding_several_positions_in_one_pass_skips_none() {
             }
         }
 
-        let lapsed = called_at + 14 * DAY;
+        let lapsed = called_at + CALL_WINDOW_SECS;
         advance_to(&storage, lapsed);
         finalize_through(&storage, lapsed);
         assert_eq!(scan(&storage, lapsed), 3, "all three voided in one pass");

@@ -2,6 +2,7 @@
 # -- Core -------------------------------------------------------------- #
 rust = "1.96"                      # build outbe-chain + all crates
 foundry = "latest"                 # forge, cast, anvil (Solidity + Ethereum CLI)
+python = "3.13"                    # genesis/release scripts use stdlib tomllib
 
 # -- System deps ----------------------------------- #
 # These must come from the system package manager:
